@@ -65,3 +65,10 @@ void clear_interrupt_accel_flag()
 {
 	interrupt_accel_flag = 0;
 }
+
+uint8_t test_connection()
+{
+    // read from who am i 
+
+    return 0;
+}

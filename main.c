@@ -11,8 +11,15 @@
 
 #include <avr/io.h>
 #include <util/delay.h>
+#include <stdio.h>
+
+#include "uart.h"
+
 int main(void)
 {
+	stdout = &uartIO;
+	stdin  = &uartIO;
+		
 	DDRB |= (1 << DDB7);
     /* Replace with your application code */
     while (1) 
