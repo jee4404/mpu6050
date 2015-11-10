@@ -18,6 +18,7 @@
 #define	MPU_SMPRT_DIV         0x19 // sample rate divider register
 #define MPU_INT_EN            0x38 // interrupt enable register
 #define MPU_ACCEL_CONFIG      0x1C // accelerometer configuration register
+#define MPU_GYRO_CONFIG       0x1B // gyro configuration register
 #define MPU_FIFO_EN           0x23 // FIFO enable register
 #define MPU_INT_PIN_CFG       0x37 // Interrupt pin / bypass enable configuration register
 #define MPU_SIGNAL_PATH_RESET 0x68 // signal path reset register, for reseting analog and digital accel/gyro path 
@@ -28,5 +29,8 @@
 #define MPU_FIFO_CNT_L        0x73 // FIFO count low
 #define MPU_FIFO_DATA         0x74 // FIFO data
 #define MPU_WHO_AMI           0x75 // who am i for i2c
+
+// macro helper for explicitly shift bits
+#define MPU_BIT(n) n
 
 #endif /* ACCEL_REGISTERS_H_ */

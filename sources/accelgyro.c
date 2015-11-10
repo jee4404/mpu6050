@@ -1,18 +1,13 @@
 /*
- * accel.h
+ * accel.c
  *
- * Created: 2015-11-04 18:40:20
+ * Created: 2015-11-04 18:39:56
  *  Author: remy
  */ 
+#include "accelgyro.h"
+#include "i2creadoperations.h"
+#include <stdio.h>
 
-
-#ifndef ACCEL_H_
-#define ACCEL_H_
-
-#include <stdint.h>
-#include <avr/pgmspace.h>
-#include <avr/interrupt.h>
-#include "accel_registers.h"
 
 /* ================================================================================================ *
  | Default MotionApps v2.0 42-byte FIFO packet structure:                                           |
@@ -218,24 +213,113 @@ const uint8_t mpu6050_dmpUpdates[MPU6050_DMP_UPDATES_SIZE] PROGMEM = {
     0x00,   0x60,   0x04,   0x00, 0x40, 0x00, 0x00
 };
 
-/************************************************************************/
-/* interrupt flag from MPU                                              */
-/************************************************************************/
-uint8_t interrupt_accel_flag;
+uint8_t interrupt_accel_flag = 0;
+
+int8_t configure_accelgyro()
+{
+    uint8_t data; // byte holding data for slave registers
+    
+	// 1. sample rate, try 1khz ? seems like accel output rate is 1khz
+	// so why shouting a lot of bit...
+	// sample rate = gyro output rate / (1+SMPLRT_DIV)
+	// 1khz = 8khz/(1+7)
+	// MPU_SMPRT_DIV <- 0000 0111
+    data = 0x07;
+    i2c_write_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &data);
+	
+	// 2. configuration register
+	// digital low pass to 0 and FSYNC input disabled
+    data = 0x00;
+	i2c_write_byte(MPU_ADDRESS, MPU_CONFIG, &data);
+    
+	// 3. enable interrupts from FIFO oflow and Data ready
+	// MPU_INT_EN xxx1 xxx1
+    data = 0x11;
+	i2c_write_byte(MPU_ADDRESS, MPU_INT_EN, &data);
+    
+	// 4. config accel range to +- 4g
+	// ACCEL_CONFIG  xxx0 1xxx
+    // do not set self test for now, we'll do it later
+    data = 0x08;
+	i2c_write_byte(MPU_ADDRESS, MPU_ACCEL_CONFIG, &data);
+    
+    // 4.1 config gyro rnage to +-250deg/sec
+    // do not perform self test, we'll do it later
+    data = 0x00;
+    i2c_write_byte(MPU_ADDRESS, MPU_GYRO_CONFIG, &data);
+    
+	// 5. enable fifo for accel and gyro 
+	// FIFO_EN 0111 1000
+    data = 0x78;
+	i2c_write_byte(MPU_ADDRESS, MPU_FIFO_EN, &data);
+    
+	// 6. configure int pin
+	// interrupt level active low : 1 on 7th bit
+	// interrupt pin configured as a push pull : 0 on 6th bit
+	// interrupt pin emits a 50us long pulse : 0 on 5th bit
+	// interrupt status bit are cleared on any read operation : 1 on 4th bit
+	// no interrupt generated on FSYNC pin for now : 0 on 2nd bit
+	// MPU_INT_PIN_CFG - 1001 000-
+    data = 0x90;
+    i2c_write_byte(MPU_ADDRESS, MPU_INT_PIN_CFG, &data);
+	
+	// 7. user control register
+	// enable use of FIFO (6th bit), disable I2c master (5th bit)
+	// always 4th bit to 0 for MPU6050, bit 2:0 are reset so can be set to 0
+	// bit 7 and 3 arent used
+	// MPU_USER_CTRL 0100 0000
+    data = 0x40;
+    i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &data);
+	
+	return 0;
+}
+
+int8_t confiugre_dmp()
+{
+	return 0;
+}
 
 /************************************************************************/
-/* configure the MPU 6050 basic features                                */
+/* handle interrupts thrown by accel                                    */
 /************************************************************************/
-uint8_t configure();
+ISR(PCINT1_vect)
+{
+	interrupt_accel_flag = 1;
+}
 
-/************************************************************************/
-/* configure the dmp                                                    */
-/************************************************************************/
-uint8_t confiugre_dmp();
+void clear_interrupt_accel_flag()
+{
+	interrupt_accel_flag = 0;
+}
 
-/************************************************************************/
-/* test connection with a who am i                                      */
-/************************************************************************/
-uint8_t test_connection();
+int8_t test_connection()
+{
+    int8_t ret = -1;
+    // read from who am i 
+    uint8_t data;
+    i2c_read_byte(MPU_ADDRESS, MPU_WHO_AMI, &data);
+    
+    if(data == 0x69)
+    {
+        ret = 0;
+    }
+    return ret;
+}
 
-#endif /* ACCEL_H_ */
+int8_t initialize_accelgyro()
+{
+    printf("initialisation accelgyro...\n");
+    int8_t ret =  -1;
+    
+    if(test_connection() == 0)
+    {
+        configure_accelgyro();
+        confiugre_dmp();
+        printf("termine...\n");
+    }
+    else
+    {
+        printf("erreur de connexion !\n");
+    }
+    return ret;
+}

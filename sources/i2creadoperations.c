@@ -18,7 +18,7 @@
 /*
  * read bytes from i2c slave
  */
-uint8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, uint8_t* data)
+int8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, uint8_t* data)
 {
     uint8_t i = 0;
     int8_t count = 0;
@@ -43,7 +43,29 @@ uint8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, ui
     return count;
 }
 
-uint8_t i2c_read_byte(uint8_t device_addr, uint8_t regAddr, uint8_t *data)
+int8_t i2c_read_byte(uint8_t device_addr, uint8_t reg_addr, uint8_t *data)
 {
-    return i2c_read_bytes(device_addr, regAddr, 1, data);
+    return i2c_read_bytes(device_addr, reg_addr, 1, data);
+}
+
+int8_t i2c_write_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, uint8_t* data)
+{
+    int8_t ret = -1;
+    if(length > 0)
+    {
+        //write data
+        i2c_start(device_addr | I2C_WRITE);
+        i2c_write(reg_addr); //reg
+        for (uint8_t i = 0; i < length; i++) {
+            i2c_write((uint8_t) data[i]);
+        }
+        i2c_stop();
+        ret = 0;
+    }
+    return ret;
+}
+
+int8_t i2c_write_byte(uint8_t device_addr, uint8_t reg_addr, uint8_t* data)
+{
+    return i2c_write_bytes(device_addr, reg_addr, 1, data);
 }

@@ -23,17 +23,17 @@
  * init uart0 of Atmega 2560 - will be sync
  * with serial term
  */
-void UART0Init();
+void uart0_init();
 
 /*
  * Transmettre sur le USART
  */
-void UART0PutChar(char c, FILE* stream);
+void uart0_put_char(char c, FILE* stream);
 
 /*
  * Recevoir sur le USART
  */
-char UART0ReadChar(FILE* stream);
+char uart0_read_char(FILE* stream);
 
 /*
  * flux pour E/S avec le terminal

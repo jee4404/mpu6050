@@ -6,7 +6,7 @@
  */
 #include "uart.h"
 
-void UART0Init()
+void uart0_init()
 {
 	// uart speed - default
 	UBRR0H = UBRRH_VALUE;
@@ -27,7 +27,7 @@ void UART0Init()
 }
 
 
-void UART0PutChar(char c, FILE* stream)
+void uart0_put_char(char c, FILE* stream)
 {
 	// wait until uart ready to Tx
 	loop_until_bit_is_set(UCSR0A, UDRE0);
@@ -37,7 +37,7 @@ void UART0PutChar(char c, FILE* stream)
 }
 
 
-char UART0ReadChar(FILE* stream)
+char uart0_read_char(FILE* stream)
 {
 	// wait byte on uart ready to Rx
 	loop_until_bit_is_set(UCSR0A, RXC0);
@@ -45,4 +45,4 @@ char UART0ReadChar(FILE* stream)
 	return UDR0;
 }
 
-FILE uartIO = FDEV_SETUP_STREAM(UART0PutChar, UART0ReadChar, _FDEV_SETUP_RW);
+FILE uartIO = FDEV_SETUP_STREAM(uart0_put_char, uart0_read_char, _FDEV_SETUP_RW);
