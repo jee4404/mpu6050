@@ -2,7 +2,7 @@
  * accel_registers.h
  *
  * Created: 2015-11-04 20:07:16
- *  Author: remy
+ *  Author: remy mourard
  */ 
 
 

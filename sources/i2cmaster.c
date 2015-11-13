@@ -1,231 +1,99 @@
 /*
- * modified version of I2C master library
- * added a timeout variable for non blocking i2c
+ * I2C master routines. Inspired by Jeff Rowber I2C devlib
+ * and Peter Fleury improved lib.
  */
 
-/*************************************************************************
-* Title:    I2C master library using hardware TWI interface
-* Author:   Peter Fleury <pfleury@gmx.ch>
-* File:     $Id: twimaster.c,v 1.3 2005/07/02 11:14:21 Peter Exp $
-* Software: AVR-GCC 3.4.3 / avr-libc 1.2.3
-* Target:   any AVR device with hardware TWI 
-* Usage:    API compatible with I2C Software Library i2cmaster.h
-**************************************************************************/
 #include "i2cmaster.h"
-
+#include <stdio.h>
 /* define CPU frequency in Mhz here if not defined in Makefile */
 #ifndef F_CPU
-#define F_CPU 4000000UL
+#define F_CPU 16000000UL
 #endif
-
-/* I2C clock in Hz */
-#define SCL_CLOCK  100000L
 
 /* I2C timer max delay */
 #define I2C_TIMER_DELAY 0xFF
 
-/*************************************************************************
- Initialization of the I2C bus interface. Need to be called only once
-*************************************************************************/
+/************************************************************************/
+/* @details Initialization of the I2C bus interface. Need to be called  */
+/* only once. Current I2C devices are MPU 6050 which max I2C clock freq */
+/* is 400 KHz and                                                       */
+/************************************************************************/
 void i2c_init(void)
 {
-  /* initialize TWI clock: 100 kHz clock, TWPS = 0 => prescaler = 1 */
-  
-  TWSR = 0;                         /* no prescaler */
-  TWBR = ((F_CPU/SCL_CLOCK)-16)/2;  /* must be > 10 for stable operation */
-
+    // set SCL frequency. see atmega 2560 data sheet p248 
+    // for how to set TWBR according to desired SCL frequency
+    TWBR = 0x08; // 3 into TWBR -> 200 kHz
+    TWSR &= ~(1 << TWPS0); // pre-scaler to 1
+    TWSR &= ~(1 << TWPS1);
+    
 }/* i2c_init */
 
-
-/*************************************************************************	
-  Issues a start condition and sends address and transfer direction.
-  return 0 = device accessible, 1= failed to access device
-*************************************************************************/
-uint8_t i2c_start(uint8_t address)
+/************************************************************************/
+/* @details sends a start condition to slave, make TWDR ready for data  */
+/* @param address : adress of slave                                     */
+/* @param mode : Read 1|Write 0                                         */
+/************************************************************************/
+uint8_t i2c_start(uint8_t address, uint8_t mode)
 {
-	uint32_t  i2c_timer = 0;
-    uint8_t   twst;
-
-	// send START condition
-	TWCR = (1<<TWINT) | (1<<TWSTA) | (1<<TWEN);
-
-	// wait until transmission completed
-	i2c_timer = I2C_TIMER_DELAY;
-	while(!(TWCR & (1<<TWINT)) && i2c_timer--);
-	if(i2c_timer == 0)
-		return 1;
-
-	// check value of TWI Status Register. Mask prescaler bits.
-	twst = TW_STATUS & 0xF8;
-	if ( (twst != TW_START) && (twst != TW_REP_START)) return 1;
-
-	// send device address
-	TWDR = address;
-	TWCR = (1<<TWINT) | (1<<TWEN);
-
-	// wail until transmission completed and ACK/NACK has been received
-	i2c_timer = I2C_TIMER_DELAY;
-	while(!(TWCR & (1<<TWINT)) && i2c_timer--);
-	if(i2c_timer == 0)
-		return 1;
-
-	// check value of TWI Status Register. Mask prescaler bits.
-	twst = TW_STATUS & 0xF8;
-	if ( (twst != TW_MT_SLA_ACK) && (twst != TW_MR_SLA_ACK) ) return 1;
-
-	return 0;
-}/* i2c_start */
-
-
-/*************************************************************************
- Issues a start condition and sends address and transfer direction.
- If device is busy, use ack polling to wait until device is ready
- 
- Input:   address and transfer direction of I2C device
-*************************************************************************/
-void i2c_start_wait(unsigned char address)
-{
-	uint32_t  i2c_timer = 0;
-	uint8_t   twst;
-
-    while ( 1 )
-    {
-	    // send START condition
-	    TWCR = (1<<TWINT) | (1<<TWSTA) | (1<<TWEN);
+    // start condition
+	TWCR = (1 << TWINT) | (1 << TWSTA) | (1 << TWEN);
     
-    	// wait until transmission completed
-	    i2c_timer = I2C_TIMER_DELAY;
-    	while(!(TWCR & (1<<TWINT)) && i2c_timer--);
-
-    	// check value of TWI Status Register. Mask prescaler bits.
-    	twst = TW_STATUS & 0xF8;
-    	if ( (twst != TW_START) && (twst != TW_REP_START)) continue;
+    // wait for TWINT flag indicating tha start has been Tx
+    while (!(TWCR & (1<<TWINT)));
     
-    	// send device address
-    	TWDR = address;
-    	TWCR = (1<<TWINT) | (1<<TWEN);
+    if(TW_STATUS != TW_START) // start condition not sent
+        return TW_STATUS;
     
-    	// wail until transmission completed
-    	i2c_timer = I2C_TIMER_DELAY;
-    	while(!(TWCR & (1<<TWINT)) && i2c_timer--);
+    // now decide if well Tx(SLA+W or I2C_WRITE) or Rx(SLA+R or I2C_READ)
+    TWDR = (address << 1) | mode;
+    TWCR = (1 << TWINT) | (1 << TWEN);
     
-    	// check value of TWI Status Register. Mask prescaler bits.
-    	twst = TW_STATUS & 0xF8;
-    	if ( (twst == TW_MT_SLA_NACK )||(twst ==TW_MR_DATA_NACK) ) 
-    	{    	    
-    	    /* device busy, send stop condition to terminate write operation */
-	        TWCR = (1<<TWINT) | (1<<TWEN) | (1<<TWSTO);
-	        
-	        // wait until stop condition is executed and bus released
-	        i2c_timer = I2C_TIMER_DELAY;
-	        while((TWCR & (1<<TWSTO)) && i2c_timer--);
-	        
-    	    continue;
-    	}
-    	//if( twst != TW_MT_SLA_ACK) return 1;
-    	break;
-     }
+    // wait for TWINT flag indicating that SLA+mode have been transmitted
+    while (!(TWCR & (1<<TWINT)));
+    
+    // TWDR is now ready (or not, the caller take action) for Tx/Rx data :)
+    return TW_STATUS;
+}
 
-}/* i2c_start_wait */
-
-
-/*************************************************************************
- Issues a repeated start condition and sends address and transfer direction 
-
- Input:   address and transfer direction of I2C device
- 
- Return:  0 device accessible
-          1 failed to access device
-*************************************************************************/
-uint8_t i2c_rep_start(uint8_t address)
-{
-    return i2c_start( address );
-
-}/* i2c_rep_start */
-
-
-/*************************************************************************
- Terminates the data transfer and releases the I2C bus
-*************************************************************************/
 void i2c_stop(void)
 {
-	uint32_t  i2c_timer = 0;
-
     /* send stop condition */
 	TWCR = (1<<TWINT) | (1<<TWEN) | (1<<TWSTO);
 	
 	// wait until stop condition is executed and bus released
-	i2c_timer = I2C_TIMER_DELAY;
-	while((TWCR & (1<<TWSTO)) && i2c_timer--);
+	while((TWCR & (1<<TWSTO)));
+}
 
-}/* i2c_stop */
-
-
-/*************************************************************************
-  Send one byte to I2C device
-  
-  Input:    byte to be transfered
-  Return:   0 write successful 
-            1 write failed
-*************************************************************************/
-uint8_t i2c_write( uint8_t data )
-{	
-	uint32_t  i2c_timer = 0;
-    uint8_t   twst;
+uint8_t i2c_transmit( uint8_t data )
+{
+    // we want to Tx
+    TWCR = (1 << TWINT) | (1 << TWEN);
     
-	// send data to the previously addressed device
-	TWDR = data;
-	TWCR = (1<<TWINT) | (1<<TWEN);
+    // wait for TWINT to be cleared before putting data into TWDR
+    //while((TWCR & (1 << TWINT)) == 1);
+    while (!(TWCR & (1<<TWINT)));
+    
+    // put data in TWDR
+    TWDR = data;
+    // and send it
+    TWCR = (1 << TWINT) | (1 << TWEN);
+    
+    // wait for ack of slave
+    //while((TWCR & (1 << TWINT)) == 1);
+    while (!(TWCR & (1<<TWINT)));
+    
+    // return status, error handling responsibility of the caller
+    return TW_STATUS;
+}
 
-	// wait until transmission completed
-	i2c_timer = I2C_TIMER_DELAY;
-	while(!(TWCR & (1<<TWINT)) && i2c_timer--);
-	if(i2c_timer == 0)
-		return 1;
-
-	// check value of TWI Status Register. Mask prescaler bits
-	twst = TW_STATUS & 0xF8;
-	if( twst != TW_MT_DATA_ACK) return 1;
-	return 0;
-
-}/* i2c_write */
-
-
-/*************************************************************************
- Read one byte from the I2C device, request more data from device 
- 
- Return:  byte read from I2C device
-*************************************************************************/
-uint8_t i2c_readAck(void)
+uint8_t i2c_receive(uint8_t* data)
 {
-	uint32_t  i2c_timer = 0;
-
-	TWCR = (1<<TWINT) | (1<<TWEN) | (1<<TWEA);
-	i2c_timer = I2C_TIMER_DELAY;
-	while(!(TWCR & (1<<TWINT)) && i2c_timer--);
-	if(i2c_timer == 0)
-		return 0;
-
-    return TWDR;
-
-}/* i2c_readAck */
-
-
-/*************************************************************************
- Read one byte from the I2C device, read is followed by a stop condition 
- 
- Return:  byte read from I2C device
-*************************************************************************/
-uint8_t i2c_readNak(void)
-{
-	uint32_t  i2c_timer = 0;
-
-	TWCR = (1<<TWINT) | (1<<TWEN);
-	i2c_timer = I2C_TIMER_DELAY;
-	while(!(TWCR & (1<<TWINT)) && i2c_timer--);
-	if(i2c_timer == 0)
-		return 0;
-	
-    return TWDR;
-
-}/* i2c_readNak */
+    // we want to Rx
+    TWCR = (1 << TWINT) | (1 << TWEN);   
+    // wait for data available on TWDR
+    //while((TWCR & (1 << TWINT)) == 1);
+    while (!(TWCR & (1<<TWINT)));
+    
+    *data = TWDR;
+    return TW_STATUS;
+}

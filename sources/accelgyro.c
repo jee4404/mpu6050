@@ -6,8 +6,8 @@
  */ 
 #include "accelgyro.h"
 #include "i2creadoperations.h"
+#include "general_setup.h"
 #include <stdio.h>
-
 
 /* ================================================================================================ *
  | Default MotionApps v2.0 42-byte FIFO packet structure:                                           |
@@ -215,7 +215,7 @@ const uint8_t mpu6050_dmpUpdates[MPU6050_DMP_UPDATES_SIZE] PROGMEM = {
 
 uint8_t interrupt_accel_flag = 0;
 
-int8_t configure_accelgyro()
+void configure_accelgyro()
 {
     uint8_t data; // byte holding data for slave registers
     
@@ -225,7 +225,10 @@ int8_t configure_accelgyro()
 	// 1khz = 8khz/(1+7)
 	// MPU_SMPRT_DIV <- 0000 0111
     data = 0x07;
-    i2c_write_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &data);
+    if(i2c_write_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &data) != 0)
+    {
+        printf("error while writing to reg/device [0x%X|0x%X]", MPU_ADDRESS, MPU_SMPRT_DIV);   
+    }        
 	
 	// 2. configuration register
 	// digital low pass to 0 and FSYNC input disabled
@@ -270,13 +273,11 @@ int8_t configure_accelgyro()
 	// MPU_USER_CTRL 0100 0000
     data = 0x40;
     i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &data);
-	
-	return 0;
 }
 
-int8_t confiugre_dmp()
+void confiugre_dmp()
 {
-	return 0;
+	return;
 }
 
 /************************************************************************/
@@ -284,6 +285,7 @@ int8_t confiugre_dmp()
 /************************************************************************/
 ISR(PCINT1_vect)
 {
+    //printf("Got an interrupt !\n");
 	interrupt_accel_flag = 1;
 }
 
@@ -292,34 +294,122 @@ void clear_interrupt_accel_flag()
 	interrupt_accel_flag = 0;
 }
 
-int8_t test_connection()
+uint8_t test_connection()
 {
-    int8_t ret = -1;
+    int8_t ret = 1;
     // read from who am i 
-    uint8_t data;
+    uint8_t data = 0, who_ami = 0;
     i2c_read_byte(MPU_ADDRESS, MPU_WHO_AMI, &data);
     
-    if(data == 0x69)
+    //read bits 6:1
+    if(data > 0)
+    {
+        who_ami = read_bits_from_byte(1, 6, data);
+    } 
+    printf("who am i : %X \n", who_ami);
+
+    if(who_ami == 0x34)
     {
         ret = 0;
     }
     return ret;
 }
 
-int8_t initialize_accelgyro()
+uint8_t initialize_accelgyro()
 {
-    printf("initialisation accelgyro...\n");
-    int8_t ret =  -1;
+    printf("accelgyro init...\n");
+
+    uint8_t ret = 1;
     
     if(test_connection() == 0)
     {
+        // configuration phase
+        printf("accel/gyro config...\n");
         configure_accelgyro();
+
+        printf("dmp config...\n");
         confiugre_dmp();
-        printf("termine...\n");
+
+        printf("interruptions enable...\n");
+        accel_int_enable();
+        
+        // configuration check phase
+        check_accelgyro_configure();    
     }
     else
     {
-        printf("erreur de connexion !\n");
+        printf("connection error\n");
     }
     return ret;
+}
+
+int8_t run_accelgyro_selftest()
+{
+    return 0;
+}
+
+void check_accelgyro_configure()
+{
+    uint8_t data          = 0; // byte holding data for slave registers
+    uint8_t expected_data = 0; // expected byte for checking
+    
+    // 1. sample rate, try 1khz ? seems like accel output rate is 1khz
+    // so why shouting a lot of bit...
+    // sample rate = gyro output rate / (1+SMPLRT_DIV)
+    // 1khz = 8khz/(1+7)
+    // MPU_SMPRT_DIV <- 0000 0111
+    expected_data = 0x07;
+    i2c_read_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &data);
+    if(expected_data != data) printf("configuration error MPU_SMPRT_DIV (expected/found) [0x%X|0x%X]\n", expected_data, data);
+        
+    // 2. configuration register
+    // digital low pass to 0 and FSYNC input disabled
+    expected_data = 0x00;
+    i2c_read_byte(MPU_ADDRESS, MPU_CONFIG, &data);
+    if(expected_data != data) printf("configuration error MPU_CONFIG (expected/found) [0x%X|0x%X]\n", expected_data, data);
+    
+    // 3. enable interrupts from FIFO oflow and Data ready
+    // MPU_INT_EN xxx1 xxx1
+    expected_data = 0x11;
+    i2c_read_byte(MPU_ADDRESS, MPU_INT_EN, &data);
+    if(expected_data != data) printf("configuration error  MPU_INT_EN (expected/found) [0x%X|0x%X]\n", expected_data, data);
+    
+    // 4. config accel range to +- 4g
+    // ACCEL_CONFIG  xxx0 1xxx
+    // do not set self test for now, we'll do it later
+    expected_data = 0x08;
+    i2c_read_byte(MPU_ADDRESS, MPU_ACCEL_CONFIG, &data);
+    if(expected_data != data) printf("configuration error MPU_ACCEL_CONFIG (expected/found) [0x%X|0x%X]\n", expected_data, data);
+    
+    // 4.1 config gyro rnage to +-250deg/sec
+    // do not perform self test, we'll do it later
+    expected_data = 0x00;
+    i2c_read_byte(MPU_ADDRESS, MPU_GYRO_CONFIG, &data);
+    if(expected_data != data) printf("configuration error MPU_GYRO_CONFIG (expected/found) [0x%X|0x%X]\n", expected_data, data);
+    
+    // 5. enable fifo for accel and gyro
+    // FIFO_EN 0111 1000
+    expected_data = 0x78;
+    i2c_read_byte(MPU_ADDRESS, MPU_FIFO_EN, &data);
+    if(expected_data != data) printf("configuration error MPU_FIFO_EN (expected/found) [0x%X|0x%X]\n", expected_data, data);
+    
+    // 6. configure int pin
+    // interrupt level active low : 1 on 7th bit
+    // interrupt pin configured as a push pull : 0 on 6th bit
+    // interrupt pin emits a 50us long pulse : 0 on 5th bit
+    // interrupt status bit are cleared on any read operation : 1 on 4th bit
+    // no interrupt generated on FSYNC pin for now : 0 on 2nd bit
+    // MPU_INT_PIN_CFG - 1001 000-
+    expected_data = 0x90;
+    i2c_read_byte(MPU_ADDRESS, MPU_INT_PIN_CFG, &data);
+    if(expected_data != data) printf("configuration error MPU_INT_PIN_CFG (expected/found) [0x%X|0x%X]\n", expected_data, data);
+    
+    // 7. user control register
+    // enable use of FIFO (6th bit), disable I2c master (5th bit)
+    // always 4th bit to 0 for MPU6050, bit 2:0 are reset so can be set to 0
+    // bit 7 and 3 arent used
+    // MPU_USER_CTRL 0100 0000
+    expected_data = 0x40;
+    i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &data);
+    if(expected_data != data) printf("configuration error MPU_USER_CTRL (expected/found) [0x%X|0x%X]\n", expected_data, data);
 }

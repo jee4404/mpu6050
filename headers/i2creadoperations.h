@@ -1,11 +1,12 @@
 /*
  * i2creadoperations.h
  *
- * Created: 2015-11-05 20:46:38
- *  Author: remy
- */ 
-
-
+ * Created: 2015-11-05 20:46:53
+ * Author: remy mourard
+ * Most functions copyright (c) Davide Gironi, 2012
+ * Released under GPLv3.
+ * Please refer to LICENSE file for licensing information.
+ */
 #ifndef I2CREADOPERATIONS_H_
 #define I2CREADOPERATIONS_H_
 
@@ -18,25 +19,30 @@
 /* @param length of data                                                */
 /* @param data                                                          */
 /************************************************************************/
-int8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, uint8_t* data);
+uint8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, uint8_t* data);
 
 /************************************************************************/
 /* read a single byte                                                   */
 /************************************************************************/
-int8_t i2c_read_byte(uint8_t device_addr, uint8_t reg_addr, uint8_t *data);
+uint8_t i2c_read_byte(uint8_t device_addr, uint8_t reg_addr, uint8_t *data);
 
 /************************************************************************/
 /* write bytes to i2c slave                                             */
 /* @param device_addr salve device address                              */
-/* @param reg_addr slave device register to wrtie to                    */
+/* @param reg_addr slave device register to write to                    */
 /* @param length length of data                                         */
 /* @param data                                                          */
 /************************************************************************/
-int8_t i2c_write_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, uint8_t* data);
+uint8_t i2c_write_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, uint8_t* data);
 
 /************************************************************************/
-/* write a single byte                                                  */
+/* @details write a single byte                                         */
 /************************************************************************/
-int8_t i2c_write_byte(uint8_t device_addr, uint8_t reg_addr, uint8_t* data);
+uint8_t i2c_write_byte(uint8_t device_addr, uint8_t reg_addr, uint8_t* data);
+
+/************************************************************************/
+/* @details read specific bits from a read byte data                    */
+/************************************************************************/
+uint8_t read_bits_from_byte(uint8_t offset, uint8_t length, uint8_t data);
 
 #endif /* I2CREADOPERATIONS_H_ */

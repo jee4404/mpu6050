@@ -27,21 +27,30 @@ void clear_interrupt_accel_flag();
 /************************************************************************/
 /* @details configure the MPU 6050 basic features                       */
 /************************************************************************/
-int8_t configure_accelgyro();
+void configure_accelgyro();
 
 /************************************************************************/
 /* @details configure the dmp                                           */
 /************************************************************************/
-int8_t confiugre_dmp();
+void confiugre_dmp();
 
 /************************************************************************/
 /* @details test connection with a who am i                             */
 /************************************************************************/
-int8_t test_connection();
+uint8_t test_connection();
 
 /************************************************************************/
 /* @details call test_connection, configure_accelgyro and configure_dmp */
 /************************************************************************/
-int8_t initialize_accelgyro();
+uint8_t initialize_accelgyro();
 
+/************************************************************************/
+/* @details perform accel and gyro self test                            */
+/************************************************************************/
+int8_t run_accelgyro_selftest();
+
+/************************************************************************/
+/* @details check for correct accelgyro config                          */
+/************************************************************************/
+void check_accelgyro_configure();
 #endif /* ACCEL_H_ */

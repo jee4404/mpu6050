@@ -2,7 +2,7 @@
  * general_setup.h
  *
  * Created: 2015-11-04 17:45:28
- *  Author: remy
+ *  Author: remy mourard
  */ 
 
 #ifndef GENERAL_SETUP_H_
@@ -12,12 +12,12 @@
 #include <stdint.h>
 
 /************************************************************************/
-/* enable global interrupts                                             */
+/* @details enable global interrupts                                    */
 /************************************************************************/
  uint8_t global_int_enable();
 
 /************************************************************************/
-/* enable external interrupts for accelerometer                         */
+/* @details enable external interrupts for accelerometer                */
 /************************************************************************/
 uint8_t  accel_int_enable();
 

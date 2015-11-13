@@ -2,7 +2,7 @@
  * general_setup.c
  *
  * Created: 2015-11-04 17:45:11
- *  Author: remy
+ *  Author: remy mourard
  */
 #include "general_setup.h"
 
@@ -28,7 +28,7 @@ uint8_t accel_int_enable()
 	// manipulation
 	EIMSK &= ~(0 << INT1);
 	
-	// set interrupts on low level 00
+	// set interrupts on low level 00 (according to accelgyro.c configure_accelgyro()
 	EICRA &= ~(0 << ISC11);
 	EICRA &= ~(0 << ISC10);
 	
