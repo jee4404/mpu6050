@@ -298,14 +298,15 @@ uint8_t test_connection()
 {
     int8_t ret = 1;
     // read from who am i 
-    uint8_t data = 0, who_ami = 0;
+    uint8_t data;
+    uint8_t who_ami = 0;
     i2c_read_byte(MPU_ADDRESS, MPU_WHO_AMI, &data);
     
     //read bits 6:1
     if(data > 0)
     {
         who_ami = read_bits_from_byte(1, 6, data);
-    } 
+    }
     printf("who am i : %X \n", who_ami);
 
     if(who_ami == 0x34)

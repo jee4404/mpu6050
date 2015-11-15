@@ -53,19 +53,39 @@ uint8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, ui
                 case TW_MT_DATA_NACK: // error, data transmitted, nack received
                     go_on = 0;
                     break;
-            }                
+            }
+                            
 	        if(go_on == 1)
             {
-	            _delay_us(10);
+	            _delay_us(1000);
 	            //read data
-	            i2c_start(device_addr, TW_READ);
-                
-	            for(i=0; i<length; i++)
+	            go_on = 0;
+                twi_status = i2c_start(device_addr, TW_READ);
+	            
+                switch(twi_status)
                 {
-		            count++;
-                    twi_status = i2c_receive(&data[i]);
-	            }
-	            i2c_stop();
+                    case TW_REP_START: // success not sure about it
+                    case TW_MR_SLA_ACK:
+                        go_on = 1;
+                        break;
+                    default: // error
+                        break;
+                }
+                
+                if(go_on == 1)
+                {
+	                for(i=0; i<length; i++)
+                    {
+		                count++;
+                        twi_status = i2c_receive(data);
+                        printf("i2c receive status [0x%X]\n", twi_status);
+	                }
+	                i2c_stop();
+                }
+                else
+                {
+                    printf("error while issuing i2c repeated start condition [0x%X]\n", twi_status);
+                }                
             }
             else
             {
