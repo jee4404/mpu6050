@@ -19,12 +19,12 @@
  */
 uint8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, uint8_t* data)
 {
-    uint8_t i = 0;
+    uint8_t i = 0, twi_status = 0;
     int8_t count = 0;
     if(length > 0)
     {
 	    // send start
-        uint8_t twi_status = i2c_start(device_addr, TW_WRITE);
+        twi_status = i2c_start(device_addr, TW_WRITE);
         uint8_t go_on = 0;
         switch(twi_status)
         {
@@ -36,28 +36,13 @@ uint8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, ui
         
 	    if(go_on == 0)
         {
-            printf("error while issuing i2c start condition [0x%X]\n", twi_status);
-            return 0; // return 0 byte read ?
+            printf("[i2c_read] error while issuing i2c start condition [0x%X]\n", twi_status);
         }
         else
         {
-            go_on = 0;
-            twi_status = i2c_transmit(reg_addr);
-            switch(twi_status)
+            if((twi_status = i2c_transmit(reg_addr)) == TW_MT_DATA_ACK)
             {
-                case TW_MT_DATA_ACK: // success data transmitted, ack received
-                    go_on = 1;
-                    break;
-                    
-                default:
-                case TW_MT_DATA_NACK: // error, data transmitted, nack received
-                    go_on = 0;
-                    break;
-            }
-                            
-	        if(go_on == 1)
-            {
-	            _delay_us(1000);
+	            _delay_us(10);
 	            //read data
 	            go_on = 0;
                 twi_status = i2c_start(device_addr, TW_READ);
@@ -77,19 +62,19 @@ uint8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, ui
 	                for(i=0; i<length; i++)
                     {
 		                count++;
-                        twi_status = i2c_receive(data);
-                        printf("i2c receive status [0x%X]\n", twi_status);
+                        twi_status = i2c_receive(&data[i]);
+                        printf("[i2c_read] i2c receive status [0x%X]\n", twi_status);
 	                }
 	                i2c_stop();
                 }
                 else
                 {
-                    printf("error while issuing i2c repeated start condition [0x%X]\n", twi_status);
+                    printf("[i2c_read] error while issuing i2c repeated start condition [0x%X]\n", twi_status);
                 }                
             }
             else
             {
-                printf("error while issuing i2c transmit condition [0x%X]\n", twi_status);
+                printf("[i2c_read] error while issuing i2c transmit condition [0x%X]\n", twi_status);
             }            
         }        
     }
@@ -103,20 +88,33 @@ uint8_t i2c_read_byte(uint8_t device_addr, uint8_t reg_addr, uint8_t* data)
 
 uint8_t i2c_write_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, uint8_t* data)
 {
-    /*int8_t ret = 0;
+    uint8_t twi_status, count = 0;
     if(length > 0)
     {
-        //write data
-        i2c_start(device_addr, TW_WRITE);
-        i2c_transmit(reg_addr); //reg
-        
-        for (uint8_t i = 0; i < length; i++) {
-            ret += i2c_transmit((uint8_t) data[i]);
+        if((twi_status = i2c_start(device_addr, TW_WRITE)) == TW_MT_SLA_ACK)
+        {
+            if((twi_status = i2c_transmit(reg_addr)) == TW_MT_DATA_ACK)
+            {
+                for(int i = 0; i < length; i++)
+                {
+                    ++count;
+                    printf("[i2c_write] writing [0x%X] to device\n", data[i]);
+                    twi_status = i2c_transmit((uint8_t) data[i]);
+                    printf("[i2c_write] i2c receive status [0x%X]\n", twi_status);
+                }
+                i2c_stop();
+            }
+            else
+            {
+                printf("[i2c_write] error while issuing i2c_transmit [0x%X]\n", twi_status);
+            }
         }
-        i2c_stop();
-    }
-    return ret;*/
-    return 0;
+        else
+        {
+            printf("[i2c_write] error while issuing i2c start condition [0x%X]\n", twi_status);
+        }
+    }        
+    return count;
 }
 
 uint8_t i2c_write_byte(uint8_t device_addr, uint8_t reg_addr, uint8_t* data)

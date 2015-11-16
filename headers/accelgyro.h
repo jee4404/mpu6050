@@ -53,4 +53,9 @@ int8_t run_accelgyro_selftest();
 /* @details check for correct accelgyro config                          */
 /************************************************************************/
 void check_accelgyro_configure();
+
+/************************************************************************/
+/* helper to set sample rate register                                   */
+/************************************************************************/
+void setSampleRate(uint8_t value);
 #endif /* ACCEL_H_ */
