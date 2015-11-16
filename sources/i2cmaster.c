@@ -40,7 +40,6 @@ void i2c_init(void)
 /************************************************************************/
 uint8_t i2c_start(uint8_t address, uint8_t mode)
 {
-    printf("begin i2c_start...\n");
     // start condition
 	TWCR = (1 << TWINT) | (1 << TWSTA) | (1 << TWEN);
     
@@ -52,14 +51,13 @@ uint8_t i2c_start(uint8_t address, uint8_t mode)
         printf("error in i2c_start [0x%X]\n", TW_STATUS);
     }
         
-    // now decide if well Tx(SLA+W or I2C_WRITE) or Rx(SLA+R or I2C_READ)
+    // now decide if well Tx(SLA+W) or Rx(SLA+R)
     TWDR = (address << 1) | mode;
     TWCR = (1 << TWINT) | (1 << TWEN);
     
     // wait for TWINT flag indicating that SLA+mode have been transmitted
     while ( !(TWCR & (1<<TWINT)) );
     
-    printf("end i2c_start...\n");
     // TWDR is now ready (or not, the caller take action) for Tx/Rx data :)
     return TW_STATUS;
 }
@@ -75,14 +73,12 @@ void i2c_stop(void)
 
 uint8_t i2c_transmit( uint8_t data )
 {
-    printf("i2c_tranmit data : [0x%X]\n", data);
     // put data in TWDR
     TWDR = data;
     // and send it
     TWCR = (1 << TWINT) | (1 << TWEN);
     
     // wait for ack of slave
-    //while((TWCR & (1 << TWINT)) == 1);
     while (!(TWCR & (1<<TWINT)));
     
     // return status, error handling responsibility of the caller
@@ -97,6 +93,5 @@ uint8_t i2c_receive(uint8_t* data)
     while (!(TWCR & (1<<TWINT)));
     
     *data = TWDR;
-    printf("i2c_receive data : [0x%X]\n", TWDR);
     return TW_STATUS;
 }

@@ -217,22 +217,16 @@ uint8_t interrupt_accel_flag = 0;
 
 void configure_accelgyro()
 {
-    uint8_t data; // byte holding data for slave registers
+    uint8_t value; // byte holding data for slave registers
+    _delay_ms(100);
+    setSleepMode(0);
     
-	// 1. sample rate, try 1khz ? seems like accel output rate is 1khz
-	// so why shouting a lot of bit...
-	// sample rate = gyro output rate / (1+SMPLRT_DIV)
-	// 1khz = 8khz/(1+7)
-	// MPU_SMPRT_DIV <- 0000 0111
-    data = 0x07;
-    if(i2c_write_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &data) != 0)
-    {
-        printf("error while writing to reg/device [0x%X|0x%X]", MPU_ADDRESS, MPU_SMPRT_DIV);   
-    }        
-	
+    value = 0x07;
+    setSampleRate(value);
+    
 	// 2. configuration register
 	// digital low pass to 0 and FSYNC input disabled
-    data = 0x00;
+    /*data = 0x00;
 	i2c_write_byte(MPU_ADDRESS, MPU_CONFIG, &data);
     
 	// 3. enable interrupts from FIFO oflow and Data ready
@@ -272,7 +266,7 @@ void configure_accelgyro()
 	// bit 7 and 3 arent used
 	// MPU_USER_CTRL 0100 0000
     data = 0x40;
-    i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &data);
+    i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &data);*/
 }
 
 void confiugre_dmp()
@@ -307,8 +301,7 @@ uint8_t test_connection()
     {
         who_ami = read_bits_from_byte(1, 6, data);
     }
-    printf("who am i : %X \n", who_ami);
-
+    
     if(who_ami == 0x34)
     {
         ret = 0;
@@ -413,4 +406,36 @@ void check_accelgyro_configure()
     expected_data = 0x40;
     i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &data);
     if(expected_data != data) printf("configuration error MPU_USER_CTRL (expected/found) [0x%X|0x%X]\n", expected_data, data);
+}
+
+void setSampleRate(uint8_t value)
+{
+    // 1. sample rate, try 1khz ? seems like accel output rate is 1khz
+    // so why shouting a lot of bit...
+    // sample rate = gyro output rate / (1+SMPLRT_DIV)
+    // 1khz = 8khz/(1+7)
+    // MPU_SMPRT_DIV <- 0000 0111
+    uint8_t data;
+    i2c_read_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &data);
+    printf("MPU_SMPRT_DIV value before set : [0x%X]\n", data);
+    
+    if(i2c_write_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &value) != 1)
+    {
+        printf("error while writing to reg/device [0x%X|0x%X]", MPU_ADDRESS, MPU_SMPRT_DIV);
+    }
+    
+    data = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &data);
+    printf("MPU_SMPRT_DIV value after set : [0x%X]\n", data);
+}
+
+void setSleepMode(uint8_t enable)
+{
+    uint8_t data_mask = 0xFF;
+    if(enable == 1)
+        data_mask |= (1 << 6); // sleep mode bit is 6th in pwr mgmt 1 register
+    else
+        data_mask &= ~(1 << 6);
+    
+    i2c_write_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &data);
 }
