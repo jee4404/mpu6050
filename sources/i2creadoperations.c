@@ -62,8 +62,10 @@ uint8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, ui
 	                for(i=0; i<length; i++)
                     {
 		                count++;
-                        twi_status = i2c_receive(&data[i]);
-                        printf("[i2c_read] i2c receive status [0x%X]\n", twi_status);
+                        if(i == length-1)
+                            twi_status = i2c_receive(&data[i], 1);
+                        else
+                            twi_status = i2c_receive(&data[i], 0);
 	                }
 	                i2c_stop();
                 }
@@ -98,9 +100,7 @@ uint8_t i2c_write_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, u
                 for(int i = 0; i < length; i++)
                 {
                     ++count;
-                    printf("[i2c_write] writing [0x%X] to device\n", data[i]);
                     twi_status = i2c_transmit((uint8_t) data[i]);
-                    printf("[i2c_write] i2c receive status [0x%X]\n", twi_status);
                 }
                 i2c_stop();
             }

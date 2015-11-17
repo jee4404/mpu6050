@@ -2,12 +2,14 @@
  * accel.c
  *
  * Created: 2015-11-04 18:39:56
- *  Author: remy
+ * Author: remy
+ * Credit for dmpMemory, dmpConfig and dmpUpadtes bytes array : J Rowber / I2C Devlib
  */ 
 #include "accelgyro.h"
 #include "i2creadoperations.h"
 #include "general_setup.h"
 #include <stdio.h>
+#include <util/delay.h>
 
 /* ================================================================================================ *
  | Default MotionApps v2.0 42-byte FIFO packet structure:                                           |
@@ -22,7 +24,7 @@
 // this block of memory gets written to the MPU on start-up, and it seems
 // to be volatile memory, so it has to be done each time (it only takes ~1
 // second though)
-const uint8_t mpu6050_dmpMemory[MPU6050_DMP_CODE_SIZE] PROGMEM = {
+const uint8_t dmpMemory[MPU6050_DMP_CODE_SIZE] PROGMEM = {
     // bank 0, 256 bytes
     0xFB, 0x00, 0x00, 0x3E, 0x00, 0x0B, 0x00, 0x36, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x00,
     0x00, 0x65, 0x00, 0x54, 0xFF, 0xEF, 0x00, 0x00, 0xFA, 0x80, 0x00, 0x0B, 0x12, 0x82, 0x00, 0x01,
@@ -161,7 +163,7 @@ const uint8_t mpu6050_dmpMemory[MPU6050_DMP_CODE_SIZE] PROGMEM = {
     0xB9, 0xA7, 0xF1, 0x26, 0x26, 0x26, 0xD8, 0xD8, 0xFF
 };
 
-const uint8_t mpu6050_dmpConfig[MPU6050_DMP_CONFIG_SIZE] PROGMEM = {
+const uint8_t dmpConfig[MPU6050_DMP_CONFIG_SIZE] PROGMEM = {
 //  BANK    OFFSET  LENGTH  [DATA]
     0x03,   0x7B,   0x03,   0x4C, 0xCD, 0x6C,         // FCFG_1 inv_set_gyro_calibration
     0x03,   0xAB,   0x03,   0x36, 0x56, 0x76,         // FCFG_3 inv_set_gyro_calibration
@@ -203,7 +205,7 @@ const uint8_t mpu6050_dmpConfig[MPU6050_DMP_CONFIG_SIZE] PROGMEM = {
     // the FIFO output at the desired rate. Handling FIFO overflow cleanly is also a good idea.
 };
 
-const uint8_t mpu6050_dmpUpdates[MPU6050_DMP_UPDATES_SIZE] PROGMEM = {
+const uint8_t dmpUpdates[MPU6050_DMP_UPDATES_SIZE] PROGMEM = {
     0x01,   0xB2,   0x02,   0xFF, 0xFF,
     0x01,   0x90,   0x04,   0x09, 0x23, 0xA1, 0x35,
     0x01,   0x6A,   0x02,   0x06, 0x00,
@@ -217,56 +219,29 @@ uint8_t interrupt_accel_flag = 0;
 
 void configure_accelgyro()
 {
-    uint8_t value; // byte holding data for slave registers
     _delay_ms(100);
-    setSleepMode(0);
+    set_sleep_mode(0); // wake up device
     
-    value = 0x07;
-    setSampleRate(value);
+    _delay_ms(10);
     
-	// 2. configuration register
-	// digital low pass to 0 and FSYNC input disabled
-    /*data = 0x00;
-	i2c_write_byte(MPU_ADDRESS, MPU_CONFIG, &data);
+    set_clk_selection(PLL_X_GYRO); // set clock source to pll x gyro axis
+    set_dlpf(DLPF_3); // set digital low pass filter mode to 42Hz
     
-	// 3. enable interrupts from FIFO oflow and Data ready
-	// MPU_INT_EN xxx1 xxx1
-    data = 0x11;
-	i2c_write_byte(MPU_ADDRESS, MPU_INT_EN, &data);
+    // sample rate, try 1khz ? seems like accel output rate is 1khz
+    // so why shouting a lot of bit...
+    // sample rate = gyro output rate / (1+SMPLRT_DIV)
+    set_sample_rate(0x07);
     
-	// 4. config accel range to +- 4g
-	// ACCEL_CONFIG  xxx0 1xxx
-    // do not set self test for now, we'll do it later
-    data = 0x08;
-	i2c_write_byte(MPU_ADDRESS, MPU_ACCEL_CONFIG, &data);
+	set_accel_range(ACCEL_G4); // config accel range to +- 4g
+	    
+    set_gyro_range(GYRO_DEG_250); // 4.1 config gyro rnage to +-250deg/sec
     
-    // 4.1 config gyro rnage to +-250deg/sec
-    // do not perform self test, we'll do it later
-    data = 0x00;
-    i2c_write_byte(MPU_ADDRESS, MPU_GYRO_CONFIG, &data);
+    set_fifo_enabled(1); // enable fifo operations
     
-	// 5. enable fifo for accel and gyro 
-	// FIFO_EN 0111 1000
-    data = 0x78;
-	i2c_write_byte(MPU_ADDRESS, MPU_FIFO_EN, &data);
-    
-	// 6. configure int pin
-	// interrupt level active low : 1 on 7th bit
-	// interrupt pin configured as a push pull : 0 on 6th bit
-	// interrupt pin emits a 50us long pulse : 0 on 5th bit
-	// interrupt status bit are cleared on any read operation : 1 on 4th bit
-	// no interrupt generated on FSYNC pin for now : 0 on 2nd bit
-	// MPU_INT_PIN_CFG - 1001 000-
-    data = 0x90;
-    i2c_write_byte(MPU_ADDRESS, MPU_INT_PIN_CFG, &data);
+	set_fifo_enable_for(ACCEL_FIFO_EN|GYRO_Z_FIFO_EN|GYRO_Y_FIFO_EN|GYRO_X_FIFO_EN); // enable fifo for accel and gyro 
 	
-	// 7. user control register
-	// enable use of FIFO (6th bit), disable I2c master (5th bit)
-	// always 4th bit to 0 for MPU6050, bit 2:0 are reset so can be set to 0
-	// bit 7 and 3 arent used
-	// MPU_USER_CTRL 0100 0000
-    data = 0x40;
-    i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &data);*/
+	// 6. configure INT_PIN_CFG register
+	
 }
 
 void confiugre_dmp()
@@ -298,11 +273,9 @@ uint8_t test_connection()
     
     //read bits 6:1
     if(data > 0)
-    {
         who_ami = read_bits_from_byte(1, 6, data);
-    }
-    
-    if(who_ami == 0x34)
+
+    if(who_ami == WHO_AM_I)
     {
         ret = 0;
     }
@@ -311,24 +284,21 @@ uint8_t test_connection()
 
 uint8_t initialize_accelgyro()
 {
-    printf("accelgyro init...\n");
+    printf("MPU6050 initialize...\n");
 
     uint8_t ret = 1;
     
     if(test_connection() == 0)
     {
         // configuration phase
-        printf("accel/gyro config...\n");
+        printf("MPU6050 config...\n");
         configure_accelgyro();
 
-        printf("dmp config...\n");
+        printf("DMP config...\n");
         confiugre_dmp();
 
-        printf("interruptions enable...\n");
+        printf("interruptions enabling...\n");
         accel_int_enable();
-        
-        // configuration check phase
-        check_accelgyro_configure();    
     }
     else
     {
@@ -337,105 +307,241 @@ uint8_t initialize_accelgyro()
     return ret;
 }
 
-int8_t run_accelgyro_selftest()
+void set_sample_rate(uint8_t value)
 {
-    return 0;
+    uint8_t register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &register_value);
+    
+#ifdef DEBUG
+    printf("//--------------------------------------------------\n");
+    printf("// SET SAMPLE RATE [%d]\n", value);
+    printf("//--------------------------------------------------\n");
+    printf("sample div register value before set : [0x%X]\n", register_value);
+#endif
+    i2c_write_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &value);
+    
+#ifdef DEBUG
+    register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &register_value);
+    printf("sample div register value after set : [0x%X]\n", register_value);
+#endif
 }
 
-void check_accelgyro_configure()
+void set_sleep_mode(uint8_t enable)
 {
-    uint8_t data          = 0; // byte holding data for slave registers
-    uint8_t expected_data = 0; // expected byte for checking
+    uint8_t register_value = 0;
+    // sleep mode bit is 6th in pwr mgmt 1 register
+    // read the register value
+    i2c_read_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
     
-    // 1. sample rate, try 1khz ? seems like accel output rate is 1khz
-    // so why shouting a lot of bit...
-    // sample rate = gyro output rate / (1+SMPLRT_DIV)
-    // 1khz = 8khz/(1+7)
-    // MPU_SMPRT_DIV <- 0000 0111
-    expected_data = 0x07;
-    i2c_read_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &data);
-    if(expected_data != data) printf("configuration error MPU_SMPRT_DIV (expected/found) [0x%X|0x%X]\n", expected_data, data);
-        
-    // 2. configuration register
-    // digital low pass to 0 and FSYNC input disabled
-    expected_data = 0x00;
-    i2c_read_byte(MPU_ADDRESS, MPU_CONFIG, &data);
-    if(expected_data != data) printf("configuration error MPU_CONFIG (expected/found) [0x%X|0x%X]\n", expected_data, data);
-    
-    // 3. enable interrupts from FIFO oflow and Data ready
-    // MPU_INT_EN xxx1 xxx1
-    expected_data = 0x11;
-    i2c_read_byte(MPU_ADDRESS, MPU_INT_EN, &data);
-    if(expected_data != data) printf("configuration error  MPU_INT_EN (expected/found) [0x%X|0x%X]\n", expected_data, data);
-    
-    // 4. config accel range to +- 4g
-    // ACCEL_CONFIG  xxx0 1xxx
-    // do not set self test for now, we'll do it later
-    expected_data = 0x08;
-    i2c_read_byte(MPU_ADDRESS, MPU_ACCEL_CONFIG, &data);
-    if(expected_data != data) printf("configuration error MPU_ACCEL_CONFIG (expected/found) [0x%X|0x%X]\n", expected_data, data);
-    
-    // 4.1 config gyro rnage to +-250deg/sec
-    // do not perform self test, we'll do it later
-    expected_data = 0x00;
-    i2c_read_byte(MPU_ADDRESS, MPU_GYRO_CONFIG, &data);
-    if(expected_data != data) printf("configuration error MPU_GYRO_CONFIG (expected/found) [0x%X|0x%X]\n", expected_data, data);
-    
-    // 5. enable fifo for accel and gyro
-    // FIFO_EN 0111 1000
-    expected_data = 0x78;
-    i2c_read_byte(MPU_ADDRESS, MPU_FIFO_EN, &data);
-    if(expected_data != data) printf("configuration error MPU_FIFO_EN (expected/found) [0x%X|0x%X]\n", expected_data, data);
-    
-    // 6. configure int pin
-    // interrupt level active low : 1 on 7th bit
-    // interrupt pin configured as a push pull : 0 on 6th bit
-    // interrupt pin emits a 50us long pulse : 0 on 5th bit
-    // interrupt status bit are cleared on any read operation : 1 on 4th bit
-    // no interrupt generated on FSYNC pin for now : 0 on 2nd bit
-    // MPU_INT_PIN_CFG - 1001 000-
-    expected_data = 0x90;
-    i2c_read_byte(MPU_ADDRESS, MPU_INT_PIN_CFG, &data);
-    if(expected_data != data) printf("configuration error MPU_INT_PIN_CFG (expected/found) [0x%X|0x%X]\n", expected_data, data);
-    
-    // 7. user control register
-    // enable use of FIFO (6th bit), disable I2c master (5th bit)
-    // always 4th bit to 0 for MPU6050, bit 2:0 are reset so can be set to 0
-    // bit 7 and 3 arent used
-    // MPU_USER_CTRL 0100 0000
-    expected_data = 0x40;
-    i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &data);
-    if(expected_data != data) printf("configuration error MPU_USER_CTRL (expected/found) [0x%X|0x%X]\n", expected_data, data);
-}
+#ifdef DEBUG
+    printf("//--------------------------------------------------\n");
+    printf("// SET SLEEP MODE [%d]\n", enable);
+    printf("//--------------------------------------------------\n");
+    printf("pwr mgmt1 register value before set : [0x%X]\n", register_value);
+#endif
 
-void setSampleRate(uint8_t value)
-{
-    // 1. sample rate, try 1khz ? seems like accel output rate is 1khz
-    // so why shouting a lot of bit...
-    // sample rate = gyro output rate / (1+SMPLRT_DIV)
-    // 1khz = 8khz/(1+7)
-    // MPU_SMPRT_DIV <- 0000 0111
-    uint8_t data;
-    i2c_read_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &data);
-    printf("MPU_SMPRT_DIV value before set : [0x%X]\n", data);
-    
-    if(i2c_write_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &value) != 1)
-    {
-        printf("error while writing to reg/device [0x%X|0x%X]", MPU_ADDRESS, MPU_SMPRT_DIV);
-    }
-    
-    data = 0;
-    i2c_read_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &data);
-    printf("MPU_SMPRT_DIV value after set : [0x%X]\n", data);
-}
-
-void setSleepMode(uint8_t enable)
-{
-    uint8_t data_mask = 0xFF;
     if(enable == 1)
-        data_mask |= (1 << 6); // sleep mode bit is 6th in pwr mgmt 1 register
+        register_value |= (1 << 6);
     else
-        data_mask &= ~(1 << 6);
+        register_value &= ~(1 << 6);
     
-    i2c_write_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &data);
+    i2c_write_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
+
+#ifdef DEBUG    
+    register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
+    printf("pwr mgmt1 register value after set : [0x%X]\n", register_value);
+#endif
+}
+
+void set_clk_selection(enum CLK_SEL clk_value)
+{
+    uint8_t register_value = 0;
+    // clock selection bits are the first 3rd bits in pwr mgmt 1 register
+    // read the register value
+    i2c_read_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
+    
+#ifdef DEBUG
+    printf("//--------------------------------------------------\n");
+    printf("// SET CLK SELECTION [%d]\n", clk_value);
+    printf("//--------------------------------------------------\n");
+    printf("clock select register value : [0x%X]\n", register_value);
+#endif
+    register_value |= clk_value;
+
+#ifdef DEBUG
+    printf("clock select computed value : [0x%X]\n", register_value);
+#endif
+    i2c_write_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
+
+#ifdef DEBUG
+    i2c_read_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
+    printf("clock selected value after : [0x%X]\n", register_value);
+#endif
+}
+
+void set_dlpf(enum DLPF_CFG dlpf_value)
+{
+    uint8_t register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_CONFIG, &register_value);
+    
+#ifdef DEBUG
+    printf("//--------------------------------------------------\n");
+    printf("// SET DLPF [%d]\n", dlpf_value);
+    printf("//--------------------------------------------------\n");
+    printf("DLPF select register value : [0x%X]\n", register_value); 
+#endif
+    register_value |= dlpf_value;
+    
+#ifdef DEBUG
+    printf("DLPF select computed value : [0x%X]\n", register_value);
+#endif
+    
+    i2c_write_byte(MPU_ADDRESS, MPU_CONFIG, &register_value);
+
+
+#ifdef DEBUG
+    i2c_read_byte(MPU_ADDRESS, MPU_CONFIG, &register_value);
+    printf("DLPF selected value after : [0x%X]\n", register_value);
+#endif
+}
+
+void set_accel_range(enum ACCEL_RANGE range_value)
+{
+    // gyro range is set by bit 3 and 4 of GYRO_CONFIG register
+    uint8_t register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_ACCEL_CONFIG, &register_value);
+    
+#ifdef DEBUG
+    printf("//--------------------------------------------------\n");
+    printf("// SET ACCEL RANGE [%d]\n", range_value);
+    printf("//--------------------------------------------------\n");
+    printf("accelerometer config register value : [0x%X]\n", register_value);
+#endif
+    // reset bits
+    register_value &= ~(1 << 3);
+    register_value &= ~(1 << 4);
+    register_value |= (range_value << 3);    
+#ifdef DEBUG
+    printf("accelerometer config computed value : [0x%X]\n", register_value);
+#endif
+    i2c_write_byte(MPU_ADDRESS, MPU_ACCEL_CONFIG, &register_value);
+    
+#ifdef DEBUG
+    i2c_read_byte(MPU_ADDRESS, MPU_ACCEL_CONFIG, &register_value);
+    printf("accelerometer config value after : [0x%X]\n", register_value);
+#endif
+}
+
+void set_gyro_range(enum GYRO_RANGE range_value)
+{
+    // gyro range is set by bit 3 and 4 of GYRO_CONFIG register
+    uint8_t register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_GYRO_CONFIG, &register_value);
+    
+#ifdef DEBUG
+    printf("//--------------------------------------------------\n");
+    printf("// SET GYRO RANGE [%d]\n", range_value);
+    printf("//--------------------------------------------------\n");
+    printf("gyro config register value : [0x%X]\n", register_value);
+#endif
+    // reset bits
+    register_value &= ~(1 << 3);
+    register_value &= ~(1 << 4);
+    // and set according to passed value
+    register_value |= (range_value << 3);
+#ifdef DEBUG
+    printf("gyro config computed value : [0x%X]\n", register_value);
+#endif
+    
+    i2c_write_byte(MPU_ADDRESS, MPU_GYRO_CONFIG, &register_value);
+    
+#ifdef DEBUG
+    i2c_read_byte(MPU_ADDRESS, MPU_GYRO_CONFIG, &register_value);
+    printf("gyro config value after : [0x%X]\n", register_value);
+#endif
+}
+
+void set_fifo_enable_for(enum FIFO_ENABLE fifo_value)
+{
+    // here we systematically rewrite the full register
+    uint8_t register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_FIFO_EN, &register_value);
+    
+#ifdef DEBUG
+    printf("//--------------------------------------------------\n");
+    printf("// ENABLE FIFO FOR [%d]\n", fifo_value);
+    printf("//--------------------------------------------------\n");
+    printf("FIFO enable register value : [0x%X]\n", register_value);
+#endif
+    
+    register_value = fifo_value;
+    
+#ifdef DEBUG
+    printf("FIFO enable computed value : [0x%X]\n", register_value);
+#endif
+    
+    i2c_write_byte(MPU_ADDRESS, MPU_FIFO_EN, &register_value);
+    
+#ifdef DEBUG
+    i2c_read_byte(MPU_ADDRESS, MPU_FIFO_EN, &register_value);
+    printf("FIFO enable value after : [0x%X]\n", register_value);
+#endif
+}
+
+void set_fifo_enabled(uint8_t enable)
+{
+    // toggle Bit 6 of User control register
+    uint8_t register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+    
+#ifdef DEBUG
+    printf("//--------------------------------------------------\n");
+    printf("// SET FIFO ENNABLED [%d]\n", enable);
+    printf("//--------------------------------------------------\n");
+    printf("user control register value : [0x%X]\n", register_value);
+#endif
+    
+    if(enable == 1)
+        register_value |= (1 << 6);
+    else
+        register_value &= ~(1 << 6);
+    
+#ifdef DEBUG
+    printf("user control computed value : [0x%X]\n", register_value);
+#endif
+    
+    i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+    
+#ifdef DEBUG
+    i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+    printf("user control value after : [0x%X]\n", register_value);
+#endif
+}
+
+void reset_fifo()
+{
+    // toggle Bit 2 of User control register
+    uint8_t register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+    
+#ifdef DEBUG
+    printf("//--------------------------------------------------\n");
+    printf("// RESET FIFO !\n");
+    printf("//--------------------------------------------------\n");
+    printf("user control register value : [0x%X]\n", register_value);
+#endif
+    register_value |= (1 << 2); // set FIFO_RESET bit to 1
+
+#ifdef DEBUG
+    printf("user control computed value : [0x%X]\n", register_value);
+#endif
+    
+    i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+    
+#ifdef DEBUG
+    i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+    printf("user control value after : [0x%X]\n", register_value);
+#endif
 }

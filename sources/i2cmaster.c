@@ -85,10 +85,14 @@ uint8_t i2c_transmit( uint8_t data )
     return TW_STATUS;
 }
 
-uint8_t i2c_receive(uint8_t* data)
+uint8_t i2c_receive(uint8_t* data, uint8_t no_ack)
 {
     // we want to Rx
-    TWCR = (1 << TWINT) | (1 << TWEN);   
+    if(no_ack ==1)
+        TWCR = (1 << TWINT) | (1 << TWEN);
+    else
+        TWCR = (1 << TWINT) | (1 << TWEN) | (1 << TWEA);
+        
     // wait for data available on TWDR
     while (!(TWCR & (1<<TWINT)));
     

@@ -12,6 +12,7 @@
 #define MPU6050_DMP_CODE_SIZE 1929 // the day I understand why i have to put bytes in dmp...
 #define MPU6050_DMP_CONFIG_SIZE 192 // i swear i'll explain that
 #define MPU6050_DMP_UPDATES_SIZE 47
+#define WHO_AM_I 0x34
 
 #define MPU_ADDRESS           0x69 // mine is 
 #define MPU_CONFIG            0x1A // config register

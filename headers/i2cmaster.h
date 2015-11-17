@@ -28,6 +28,6 @@ uint8_t i2c_transmit(uint8_t data);
 /************************************************************************/
 /* @brief receive a packet from a slave                                 */
 /************************************************************************/
-uint8_t i2c_receive(uint8_t* data);
+uint8_t i2c_receive(uint8_t* data, uint8_t no_ack);
 
 #endif
