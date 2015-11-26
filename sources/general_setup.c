@@ -6,37 +6,35 @@
  */
 #include "general_setup.h"
 
+#include <avr/io.h>
+#include <avr/interrupt.h>
+
 #ifndef SREG
 	#define SREG _SFR_IO8(0x3F)
 #endif
 
 #define SREG_GLOBAL_INT 7
 
-uint8_t global_int_enable()
+void global_int_enable()
 {
-	SREG |= (1 << SREG_GLOBAL_INT);
-	
-	return 0;
+	sei();
 }
 
-uint8_t accel_int_enable()
+void accel_int_enable()
 {
-	// set portb1 to input, could handle interrupts
-	DDRB &= (0 << DDB1);
+	// set PORTD-PIN2 to input, could handle interrupts
+	DDRD &= ~(1 << DDD2);
+    // and active pull ups
+    PORTD |= (1 << PIND2);
 	
 	// deactivate interrupts during EICRA
 	// manipulation
-	EIMSK &= ~(0 << INT1);
+	EIMSK &= ~(1 << INT2);
 	
 	// set interrupts on low level 00 (according to accelgyro.c configure_accelgyro()
-	EICRA &= ~(0 << ISC11);
-	EICRA &= ~(0 << ISC10);
+	EICRA &= ~(1 << ISC21);
+	EICRA &= ~(1 << ISC20);
 	
 	// reactivate interrupts
-	EIMSK |= (1 << INT1);
-	
-	// activate interrupts on PCINT1 pin 
-	PCMSK0 |= (1 << PCINT1);
-		
-	return 0;
+	EIMSK |= (1 << INT2);
 }

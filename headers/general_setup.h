@@ -8,17 +8,18 @@
 #ifndef GENERAL_SETUP_H_
 #define GENERAL_SETUP_H_
 
-#include <avr/io.h>
-#include <stdint.h>
-
 /************************************************************************/
 /* @details enable global interrupts                                    */
 /************************************************************************/
- uint8_t global_int_enable();
+ void global_int_enable();
 
 /************************************************************************/
-/* @details enable external interrupts for accelerometer                */
+/* @details enable external interrupts from accelerometer               */
+/*          interrupts are binded to INT2 (Port D - Bit 2)              */
+/*          so they are managed by EICRA register (ISC20 and ISC21 bits)*/
+/*          for sense control, EIMSK (INT2 bit) register for enabling   */
+/*          the interruption                                            */
 /************************************************************************/
-uint8_t  accel_int_enable();
+void  accel_int_enable();
 
 #endif /* GENERAL_SETUP_H_ */

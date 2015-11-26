@@ -2,14 +2,22 @@
  * accel.c
  *
  * Created: 2015-11-04 18:39:56
- * Author: remy
- * Credit for dmpMemory, dmpConfig and dmpUpadtes bytes array : J Rowber / I2C Devlib
- */ 
+ * Author: Remy Mourard
+ * Credit for dmpMemory, dmpConfig and dmpUpadtes bytes array : J Rowberg / I2C Devlib
+ */
 #include "accelgyro.h"
 #include "i2creadoperations.h"
 #include "general_setup.h"
+
+#include <stdlib.h>
 #include <stdio.h>
+#include <string.h>
 #include <util/delay.h>
+#include <avr/io.h>
+#include <avr/pgmspace.h>
+#include <avr/interrupt.h>
+
+#undef DEBUG
 
 /* ================================================================================================ *
  | Default MotionApps v2.0 42-byte FIFO packet structure:                                           |
@@ -24,7 +32,7 @@
 // this block of memory gets written to the MPU on start-up, and it seems
 // to be volatile memory, so it has to be done each time (it only takes ~1
 // second though)
-const uint8_t dmpMemory[MPU6050_DMP_CODE_SIZE] PROGMEM = {
+const uint8_t dmp_memory[MPU_DMP_CODE_SIZE] PROGMEM = {
     // bank 0, 256 bytes
     0xFB, 0x00, 0x00, 0x3E, 0x00, 0x0B, 0x00, 0x36, 0x00, 0x01, 0x00, 0x02, 0x00, 0x03, 0x00, 0x00,
     0x00, 0x65, 0x00, 0x54, 0xFF, 0xEF, 0x00, 0x00, 0xFA, 0x80, 0x00, 0x0B, 0x12, 0x82, 0x00, 0x01,
@@ -163,8 +171,8 @@ const uint8_t dmpMemory[MPU6050_DMP_CODE_SIZE] PROGMEM = {
     0xB9, 0xA7, 0xF1, 0x26, 0x26, 0x26, 0xD8, 0xD8, 0xFF
 };
 
-const uint8_t dmpConfig[MPU6050_DMP_CONFIG_SIZE] PROGMEM = {
-//  BANK    OFFSET  LENGTH  [DATA]
+const uint8_t dmp_config[MPU_DMP_CONFIG_SIZE] PROGMEM = {
+    //  BANK    OFFSET  LENGTH  [DATA]
     0x03,   0x7B,   0x03,   0x4C, 0xCD, 0x6C,         // FCFG_1 inv_set_gyro_calibration
     0x03,   0xAB,   0x03,   0x36, 0x56, 0x76,         // FCFG_3 inv_set_gyro_calibration
     0x00,   0x68,   0x04,   0x02, 0xCB, 0x47, 0xA2,   // D_0_104 inv_set_gyro_calibration
@@ -187,7 +195,7 @@ const uint8_t dmpConfig[MPU6050_DMP_CONFIG_SIZE] PROGMEM = {
     0x04,   0x02,   0x03,   0x0D, 0x35, 0x5D,         // CFG_MOTION_BIAS inv_turn_on_bias_from_no_motion
     0x04,   0x09,   0x04,   0x87, 0x2D, 0x35, 0x3D,   // FCFG_5 inv_set_bias_update
     0x00,   0xA3,   0x01,   0x00,                     // D_0_163 inv_set_dead_zone
-                 // SPECIAL 0x01 = enable interrupts
+    // SPECIAL 0x01 = enable interrupts
     0x00,   0x00,   0x00,   0x01, // SET INT_ENABLE at i=22, SPECIAL INSTRUCTION
     0x07,   0x86,   0x01,   0xFE,                     // CFG_6 inv_set_fifo_interupt
     0x07,   0x41,   0x05,   0xF1, 0x20, 0x28, 0x30, 0x38, // CFG_8 inv_send_quaternion
@@ -195,7 +203,7 @@ const uint8_t dmpConfig[MPU6050_DMP_CONFIG_SIZE] PROGMEM = {
     0x07,   0x46,   0x01,   0x9A,                     // CFG_GYRO_SOURCE inv_send_gyro
     0x07,   0x47,   0x04,   0xF1, 0x28, 0x30, 0x38,   // CFG_9 inv_send_gyro -> inv_construct3_fifo
     0x07,   0x6C,   0x04,   0xF1, 0x28, 0x30, 0x38,   // CFG_12 inv_send_accel -> inv_construct3_fifo
-    0x02,   0x16,   0x02,   0x00, 0x09                // D_0_22 inv_set_fifo_rate
+    0x02,   0x16,   0x02,   0x00, 0x01                // D_0_22 inv_set_fifo_rate
 
     // This very last 0x01 WAS a 0x09, which drops the FIFO rate down to 20 Hz. 0x07 is 25 Hz,
     // 0x01 is 100Hz. Going faster than 100Hz (0x00=200Hz) tends to result in very noisy data.
@@ -205,7 +213,7 @@ const uint8_t dmpConfig[MPU6050_DMP_CONFIG_SIZE] PROGMEM = {
     // the FIFO output at the desired rate. Handling FIFO overflow cleanly is also a good idea.
 };
 
-const uint8_t dmpUpdates[MPU6050_DMP_UPDATES_SIZE] PROGMEM = {
+const uint8_t dmp_updates[MPU_DMP_UPDATES_SIZE] PROGMEM = {
     0x01,   0xB2,   0x02,   0xFF, 0xFF,
     0x01,   0x90,   0x04,   0x09, 0x23, 0xA1, 0x35,
     0x01,   0x6A,   0x02,   0x06, 0x00,
@@ -215,8 +223,13 @@ const uint8_t dmpUpdates[MPU6050_DMP_UPDATES_SIZE] PROGMEM = {
     0x00,   0x60,   0x04,   0x00, 0x40, 0x00, 0x00
 };
 
-uint8_t interrupt_accel_flag = 0;
+volatile uint8_t interrupt_accel_flag = 0;
 
+uint8_t* dmp_packet_buffer;
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 void configure_accelgyro()
 {
     _delay_ms(100);
@@ -224,45 +237,41 @@ void configure_accelgyro()
     
     _delay_ms(10);
     
-    set_clk_selection(PLL_X_GYRO); // set clock source to pll x gyro axis
+    set_clk_selection(PLL_X_GYRO); // set clock source to PLL X gyro axis
     set_dlpf(DLPF_3); // set digital low pass filter mode to 42Hz
-    
-    // sample rate, try 1khz ? seems like accel output rate is 1khz
+    // sample rate, try 1khz ? seems like accelerometer output rate is 1khz
     // so why shouting a lot of bit...
     // sample rate = gyro output rate / (1+SMPLRT_DIV)
     set_sample_rate(0x07);
+    set_accel_range(ACCEL_G4); // config accelerometer range to +- 4g
+    set_gyro_range(GYRO_DEG_250); // 4.1 config gyro range to +-250deg/sec
     
-	set_accel_range(ACCEL_G4); // config accel range to +- 4g
-	    
-    set_gyro_range(GYRO_DEG_250); // 4.1 config gyro rnage to +-250deg/sec
+    interrupt_enable(DATA_READY|FIFO_OFLOW);
+    configure_interrupt();
     
-    set_fifo_enabled(1); // enable fifo operations
-    
-	set_fifo_enable_for(ACCEL_FIFO_EN|GYRO_Z_FIFO_EN|GYRO_Y_FIFO_EN|GYRO_X_FIFO_EN); // enable fifo for accel and gyro 
-	
-	// 6. configure INT_PIN_CFG register
-	
-}
-
-void confiugre_dmp()
-{
-	return;
+    set_fifo_enabled(1); // enable FIFO operations
+    set_fifo_enable_for(ACCEL_FIFO_EN|GYRO_Z_FIFO_EN|GYRO_Y_FIFO_EN|GYRO_X_FIFO_EN); // enable FIFO for accelerometer and gyro 
 }
 
 /************************************************************************/
 /* handle interrupts thrown by accel                                    */
 /************************************************************************/
-ISR(PCINT1_vect)
+ISR(INT2_vect)
 {
-    //printf("Got an interrupt !\n");
-	interrupt_accel_flag = 1;
+    interrupt_accel_flag = 1;
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 void clear_interrupt_accel_flag()
 {
-	interrupt_accel_flag = 0;
+    interrupt_accel_flag = 0;
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 uint8_t test_connection()
 {
     int8_t ret = 1;
@@ -279,9 +288,16 @@ uint8_t test_connection()
     {
         ret = 0;
     }
+    else
+    {
+        printf("found who am i : 0x%X\n", who_ami);
+    }
     return ret;
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 uint8_t initialize_accelgyro()
 {
     printf("MPU6050 initialize...\n");
@@ -290,15 +306,11 @@ uint8_t initialize_accelgyro()
     
     if(test_connection() == 0)
     {
+        reset_device();
         // configuration phase
         printf("MPU6050 config...\n");
         configure_accelgyro();
-
-        printf("DMP config...\n");
-        confiugre_dmp();
-
-        printf("interruptions enabling...\n");
-        accel_int_enable();
+        printf("...Configuration done and successful\n");
     }
     else
     {
@@ -307,26 +319,17 @@ uint8_t initialize_accelgyro()
     return ret;
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 void set_sample_rate(uint8_t value)
 {
-    uint8_t register_value = 0;
-    i2c_read_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &register_value);
-    
-#ifdef DEBUG
-    printf("//--------------------------------------------------\n");
-    printf("// SET SAMPLE RATE [%d]\n", value);
-    printf("//--------------------------------------------------\n");
-    printf("sample div register value before set : [0x%X]\n", register_value);
-#endif
     i2c_write_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &value);
-    
-#ifdef DEBUG
-    register_value = 0;
-    i2c_read_byte(MPU_ADDRESS, MPU_SMPRT_DIV, &register_value);
-    printf("sample div register value after set : [0x%X]\n", register_value);
-#endif
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 void set_sleep_mode(uint8_t enable)
 {
     uint8_t register_value = 0;
@@ -334,214 +337,739 @@ void set_sleep_mode(uint8_t enable)
     // read the register value
     i2c_read_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
     
-#ifdef DEBUG
-    printf("//--------------------------------------------------\n");
-    printf("// SET SLEEP MODE [%d]\n", enable);
-    printf("//--------------------------------------------------\n");
-    printf("pwr mgmt1 register value before set : [0x%X]\n", register_value);
-#endif
-
     if(enable == 1)
         register_value |= (1 << 6);
     else
         register_value &= ~(1 << 6);
     
     i2c_write_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
-
-#ifdef DEBUG    
-    register_value = 0;
-    i2c_read_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
-    printf("pwr mgmt1 register value after set : [0x%X]\n", register_value);
-#endif
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 void set_clk_selection(enum CLK_SEL clk_value)
 {
     uint8_t register_value = 0;
     // clock selection bits are the first 3rd bits in pwr mgmt 1 register
     // read the register value
     i2c_read_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
-    
-#ifdef DEBUG
-    printf("//--------------------------------------------------\n");
-    printf("// SET CLK SELECTION [%d]\n", clk_value);
-    printf("//--------------------------------------------------\n");
-    printf("clock select register value : [0x%X]\n", register_value);
-#endif
+
     register_value |= clk_value;
-
-#ifdef DEBUG
-    printf("clock select computed value : [0x%X]\n", register_value);
-#endif
     i2c_write_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
-
-#ifdef DEBUG
-    i2c_read_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
-    printf("clock selected value after : [0x%X]\n", register_value);
-#endif
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 void set_dlpf(enum DLPF_CFG dlpf_value)
 {
     uint8_t register_value = 0;
     i2c_read_byte(MPU_ADDRESS, MPU_CONFIG, &register_value);
-    
-#ifdef DEBUG
-    printf("//--------------------------------------------------\n");
-    printf("// SET DLPF [%d]\n", dlpf_value);
-    printf("//--------------------------------------------------\n");
-    printf("DLPF select register value : [0x%X]\n", register_value); 
-#endif
+
     register_value |= dlpf_value;
-    
-#ifdef DEBUG
-    printf("DLPF select computed value : [0x%X]\n", register_value);
-#endif
-    
     i2c_write_byte(MPU_ADDRESS, MPU_CONFIG, &register_value);
-
-
-#ifdef DEBUG
-    i2c_read_byte(MPU_ADDRESS, MPU_CONFIG, &register_value);
-    printf("DLPF selected value after : [0x%X]\n", register_value);
-#endif
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void set_fsync_config(uint8_t value)
+{
+    uint8_t register_value;
+    i2c_read_byte(MPU_ADDRESS, MPU_CONFIG, &register_value);
+    
+    register_value |= (value << 3);
+    
+    i2c_write_byte(MPU_ADDRESS, MPU_CONFIG, &value);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 void set_accel_range(enum ACCEL_RANGE range_value)
 {
     // gyro range is set by bit 3 and 4 of GYRO_CONFIG register
     uint8_t register_value = 0;
     i2c_read_byte(MPU_ADDRESS, MPU_ACCEL_CONFIG, &register_value);
-    
-#ifdef DEBUG
-    printf("//--------------------------------------------------\n");
-    printf("// SET ACCEL RANGE [%d]\n", range_value);
-    printf("//--------------------------------------------------\n");
-    printf("accelerometer config register value : [0x%X]\n", register_value);
-#endif
+
     // reset bits
     register_value &= ~(1 << 3);
     register_value &= ~(1 << 4);
     register_value |= (range_value << 3);    
-#ifdef DEBUG
-    printf("accelerometer config computed value : [0x%X]\n", register_value);
-#endif
+
     i2c_write_byte(MPU_ADDRESS, MPU_ACCEL_CONFIG, &register_value);
-    
-#ifdef DEBUG
-    i2c_read_byte(MPU_ADDRESS, MPU_ACCEL_CONFIG, &register_value);
-    printf("accelerometer config value after : [0x%X]\n", register_value);
-#endif
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 void set_gyro_range(enum GYRO_RANGE range_value)
 {
     // gyro range is set by bit 3 and 4 of GYRO_CONFIG register
     uint8_t register_value = 0;
     i2c_read_byte(MPU_ADDRESS, MPU_GYRO_CONFIG, &register_value);
-    
-#ifdef DEBUG
-    printf("//--------------------------------------------------\n");
-    printf("// SET GYRO RANGE [%d]\n", range_value);
-    printf("//--------------------------------------------------\n");
-    printf("gyro config register value : [0x%X]\n", register_value);
-#endif
+
     // reset bits
     register_value &= ~(1 << 3);
     register_value &= ~(1 << 4);
     // and set according to passed value
     register_value |= (range_value << 3);
-#ifdef DEBUG
-    printf("gyro config computed value : [0x%X]\n", register_value);
-#endif
-    
     i2c_write_byte(MPU_ADDRESS, MPU_GYRO_CONFIG, &register_value);
-    
-#ifdef DEBUG
-    i2c_read_byte(MPU_ADDRESS, MPU_GYRO_CONFIG, &register_value);
-    printf("gyro config value after : [0x%X]\n", register_value);
-#endif
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 void set_fifo_enable_for(enum FIFO_ENABLE fifo_value)
 {
     // here we systematically rewrite the full register
-    uint8_t register_value = 0;
-    i2c_read_byte(MPU_ADDRESS, MPU_FIFO_EN, &register_value);
-    
-#ifdef DEBUG
-    printf("//--------------------------------------------------\n");
-    printf("// ENABLE FIFO FOR [%d]\n", fifo_value);
-    printf("//--------------------------------------------------\n");
-    printf("FIFO enable register value : [0x%X]\n", register_value);
-#endif
-    
-    register_value = fifo_value;
-    
-#ifdef DEBUG
-    printf("FIFO enable computed value : [0x%X]\n", register_value);
-#endif
-    
+    uint8_t register_value = fifo_value;
     i2c_write_byte(MPU_ADDRESS, MPU_FIFO_EN, &register_value);
-    
-#ifdef DEBUG
-    i2c_read_byte(MPU_ADDRESS, MPU_FIFO_EN, &register_value);
-    printf("FIFO enable value after : [0x%X]\n", register_value);
-#endif
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 void set_fifo_enabled(uint8_t enable)
 {
     // toggle Bit 6 of User control register
     uint8_t register_value = 0;
     i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
     
-#ifdef DEBUG
-    printf("//--------------------------------------------------\n");
-    printf("// SET FIFO ENNABLED [%d]\n", enable);
-    printf("//--------------------------------------------------\n");
-    printf("user control register value : [0x%X]\n", register_value);
-#endif
-    
     if(enable == 1)
         register_value |= (1 << 6);
     else
         register_value &= ~(1 << 6);
     
-#ifdef DEBUG
-    printf("user control computed value : [0x%X]\n", register_value);
-#endif
-    
     i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
-    
-#ifdef DEBUG
-    i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
-    printf("user control value after : [0x%X]\n", register_value);
-#endif
 }
 
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
 void reset_fifo()
 {
     // toggle Bit 2 of User control register
     uint8_t register_value = 0;
     i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
-    
-#ifdef DEBUG
-    printf("//--------------------------------------------------\n");
-    printf("// RESET FIFO !\n");
-    printf("//--------------------------------------------------\n");
-    printf("user control register value : [0x%X]\n", register_value);
-#endif
-    register_value |= (1 << 2); // set FIFO_RESET bit to 1
 
-#ifdef DEBUG
-    printf("user control computed value : [0x%X]\n", register_value);
-#endif
+    register_value |= (1 << 2); // set FIFO_RESET bit to 1
+    i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void reset_device()
+{
+    uint8_t register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
+    
+    register_value |= (1 << 7); // set reset bit to one
+    i2c_write_byte(MPU_ADDRESS, MPU_PWR_MGT_1, &register_value);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void interrupt_enable(enum INT_EN_SRC enable_from)
+{
+    uint8_t register_value = 0;
+    register_value = enable_from;   
+    i2c_write_byte(MPU_ADDRESS, MPU_INT_EN, &register_value);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void set_otp_bank_flag(uint8_t enable)
+{
+    uint8_t register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_XG_OFFS_TC, &register_value);
+    
+    if(enable == 1)
+        register_value |= 1 ; // set 0 bit to 1
+    else
+        register_value &= ~(1 << 0); // clear 0 bit
+
+    i2c_write_byte(MPU_ADDRESS, MPU_XG_OFFS_TC, &register_value);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+uint16_t get_fifo_count()
+{
+    uint8_t register_value[2];
+    i2c_read_bytes(MPU_ADDRESS, MPU_FIFO_CNT_H, 2, register_value);
+    return (((uint16_t)register_value[0]) << 8) | register_value[1];
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void get_fifo_bytes(uint8_t* bytes, uint8_t length)
+{
+    i2c_read_bytes(MPU_ADDRESS, MPU_FIFO_DATA, length, bytes);
+}
+
+/************************************************************************/
+/* @details set interrupt on low level for working with atmega2560 int2 */
+/************************************************************************/
+void configure_interrupt()
+{
+    uint8_t register_value;
+
+    register_value = 0x80; // interrupt on low level, push pull
+    i2c_write_byte(MPU_ADDRESS, MPU_INT_PIN_CFG, &register_value);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void get_int_status(uint8_t* data)
+{
+    i2c_read_byte(MPU_ADDRESS, MPU_INT_STATUS, data);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void set_master_mode_enabled(uint8_t enable)
+{
+    uint8_t register_value;
+    i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+    
+    if(enable == 1)
+        register_value |= (1 << 5);
+    else
+        register_value &= ~(1 << 5);
+        
+    i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void reset_master_mode()
+{
+    uint8_t register_value;
+    i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+    
+    register_value |= (1 << 1);
     
     i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
-    
-#ifdef DEBUG
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void set_dmp_enabled(uint8_t enable)
+{
+    uint8_t register_value = 0;
     i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
-    printf("user control value after : [0x%X]\n", register_value);
-#endif
+    
+    if(enable == 1)
+        register_value |= (1 << 7); // DMP is enabled by bit 7
+    else
+        register_value &= ~(1 << 7);
+
+    i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void reset_dmp()
+{
+    uint8_t register_value = 0;
+    i2c_read_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+
+    register_value |= (1 << 3); // bit 3 is DMP reset (you wont see that in register map :()   
+    i2c_write_byte(MPU_ADDRESS, MPU_USER_CTRL, &register_value);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void set_memory_bank(uint8_t bank, uint8_t prefetch_enabled, uint8_t in_user_bank)
+{
+    bank &= 0x1F;
+    if (in_user_bank == 1)
+        bank |= 0x20;
+        
+    if (prefetch_enabled == 1)
+    bank |= 0x40;
+    
+    i2c_write_byte(MPU_ADDRESS, MPU_BANK_SEL, &bank);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void set_memory_start_address(uint8_t address)
+{
+    i2c_write_byte(MPU_ADDRESS, MPU_MEM_START_ADDR, &address);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void read_memory_block(uint8_t *data, uint16_t data_size, uint8_t bank, uint8_t address)
+{
+    set_memory_bank(bank, 0, 0);
+    set_memory_start_address(address);
+    uint8_t chunk_size;
+    for (uint16_t i = 0; i < data_size;)
+    {
+        // determine correct chunk size according to bank position and data size
+        chunk_size = MPU_DMP_CHUNK_SIZE;
+
+        // make sure we don't go past the data size
+        if (i + chunk_size > data_size)
+            chunk_size = data_size - i;
+
+        // make sure this chunk doesn't go past the bank boundary (256 bytes)
+        if (chunk_size > 256 - address)
+            chunk_size = 256 - address;
+
+        // read the chunk of data as specified
+        i2c_read_bytes(MPU_ADDRESS, MPU_MEM_R_W, chunk_size, data + i);
+
+        // increase byte index by [chunkSize]
+        i += chunk_size;
+
+        // uint8_t automatically wraps to 0 at 256
+        address += chunk_size;
+
+        // if we aren't done, update bank (if necessary) and address
+        if (i < data_size)
+        {
+            if (address == 0) bank++;
+            set_memory_bank(bank, 0, 0);
+            set_memory_start_address(address);
+        }
+    }
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+uint8_t write_memory_block(const uint8_t *data, uint16_t data_size, uint8_t bank, uint8_t address, uint8_t verify, uint8_t use_prog_mem)
+{
+    set_memory_bank(bank, 0, 0);
+    set_memory_start_address(address);
+    uint8_t chunk_size;
+    uint8_t* verify_buffer = 0;
+    uint8_t* prog_buffer = 0;
+    uint16_t i;
+    uint8_t j;
+    
+    if (verify) 
+        verify_buffer = (uint8_t*) malloc(MPU_DMP_CHUNK_SIZE);
+        
+    if (use_prog_mem)
+        prog_buffer = (uint8_t*) malloc(MPU_DMP_CHUNK_SIZE);
+        
+    for (i = 0; i < data_size;)
+    {
+        // determine correct chunk size according to bank position and data size
+        chunk_size = MPU_DMP_CHUNK_SIZE;
+
+        // make sure we don't go past the data size
+        if (i + chunk_size > data_size) chunk_size = data_size - i;
+
+        // make sure this chunk doesn't go past the bank boundary (256 bytes)
+        if (chunk_size > 256 - address) chunk_size = 256 - address;
+
+        if (use_prog_mem == 1)
+        {
+            // write the chunk of data as specified
+            for (j = 0; j < chunk_size; j++)
+                prog_buffer[j] = pgm_read_byte(data + i + j);
+        }
+        else
+        {
+            // write the chunk of data as specified
+            prog_buffer = (uint8_t *)data + i;
+        }
+
+        i2c_write_bytes(MPU_ADDRESS, MPU_MEM_R_W, chunk_size, prog_buffer);
+
+        // verify data if needed
+        if (verify && verify_buffer)
+        {
+            set_memory_bank(bank, 0, 0);
+            set_memory_start_address(address);
+            i2c_read_bytes(MPU_ADDRESS, MPU_MEM_R_W, chunk_size, verify_buffer);
+            
+            if (memcmp(prog_buffer, verify_buffer, chunk_size) != 0)
+            {
+                free(verify_buffer);
+                if (use_prog_mem)
+                    free(prog_buffer);
+                    
+                return 0; // uh oh.
+            }
+        }
+
+        // increase byte index by [chunkSize]
+        i += chunk_size;
+
+        // uint8_t automatically wraps to 0 at 256
+        address += chunk_size;
+
+        // if we aren't done, update bank (if necessary) and address
+        if (i < data_size)
+        {
+            if (address == 0)
+                bank++;
+            set_memory_bank(bank, 0, 0);
+            set_memory_start_address(address);
+        }
+    }
+    if (verify)
+        free(verify_buffer);
+        
+    if (use_prog_mem)
+        free(prog_buffer);
+    return 1;
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+uint8_t write_dmp_configuration_set(const uint8_t *data, uint16_t data_size, uint8_t use_prog_mem)
+{
+    uint8_t* prog_buffer = 0;
+    uint8_t success, special;
+    uint16_t i, j;
+    if (use_prog_mem)
+    {
+        prog_buffer = (uint8_t *)malloc(8); // assume 8-byte blocks, realloc later if necessary
+    }
+
+    // config set data is a long string of blocks with the following structure:
+    // [bank] [offset] [length] [byte[0], byte[1], ..., byte[length]]
+    uint8_t bank, offset, length;
+    for (i = 0; i < data_size;)
+    {
+        if (use_prog_mem)
+        {
+            bank   = pgm_read_byte(data + i++);
+            offset = pgm_read_byte(data + i++);
+            length = pgm_read_byte(data + i++);
+        }
+        else
+        {
+            bank   = data[i++];
+            offset = data[i++];
+            length = data[i++];
+        }
+
+        // write data or perform special action
+        if (length > 0)
+        {
+            // regular block of data to write
+            if (use_prog_mem)
+            {
+                if (sizeof(prog_buffer) < length)
+                    prog_buffer = (uint8_t*) realloc(prog_buffer, length);
+                
+                for (j = 0; j < length; j++)
+                    prog_buffer[j] = pgm_read_byte(data + i + j);
+            }
+            else
+            {
+                prog_buffer = (uint8_t*)data + i;
+            }
+            success = write_memory_block(prog_buffer, length, bank, offset, 1, 0);
+            i += length;
+        }
+        else
+        {
+            // special instruction
+            // NOTE: this kind of behavior (what and when to do certain things)
+            // is totally undocumented. This code is in here based on observed
+            // behavior only, and exactly why (or even whether) it has to be here
+            // is anybody's guess for now.
+            if (use_prog_mem)
+            {
+                special = pgm_read_byte(data + i++);
+            }
+            else
+            {
+                special = data[i++];
+            }
+            
+            if (special == 0x01)
+            {
+                // enable DMP-related interrupts
+
+                //mpu6050_writeBit(MPU6050_RA_INT_ENABLE, MPU6050_INTERRUPT_ZMOT_BIT, 1); //setIntZeroMotionEnabled
+                //mpu6050_writeBit(MPU6050_RA_INT_ENABLE, MPU6050_INTERRUPT_FIFO_OFLOW_BIT, 1); //setIntFIFOBufferOverflowEnabled
+                //mpu6050_writeBit(MPU6050_RA_INT_ENABLE, MPU6050_INTERRUPT_DMP_INT_BIT, 1); //setIntDMPEnabled
+                uint8_t single_op = 0x32;
+                i2c_write_byte(MPU_ADDRESS, MPU_INT_EN, &single_op);  // single operation
+                success = 1;
+            }
+            else
+            {
+                // unknown special command
+                success = 0;
+            }
+        }
+
+        if (!success)
+        {
+            if (use_prog_mem)
+                free(prog_buffer);
+                
+            return 0; // uh oh
+        }
+    }
+    
+    if (use_prog_mem)
+        free(prog_buffer);
+        
+    return 1;
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void configure_dmp()
+{
+    reset_device(); // don't ask me why, Rowberg and Gironi do this too
+    _delay_ms(30);
+    
+    set_sleep_mode(0); // wake up device
+    
+    uint8_t a_buffer = 0;
+    set_memory_bank(0x10, 1, 1);
+    set_memory_start_address(0x06);
+    i2c_read_byte(MPU_ADDRESS, MPU_MEM_R_W, &a_buffer); // read hardware revision
+    printf("Hardware revision %X\n", a_buffer);
+    set_memory_bank(0, 0, 0);
+    
+    // check otp bank valid
+    i2c_read_byte(MPU_ADDRESS, MPU_XG_OFFS_TC, &a_buffer);
+    printf("OTP bank valid : %d\n", a_buffer & 1);
+    
+    // set weird slave stuffs
+    a_buffer = 0x7F;
+    i2c_write_byte(MPU_ADDRESS, MPU_I2C_SLV0, &a_buffer);
+    // disable i2c master mode
+    set_master_mode_enabled(0);
+    a_buffer = 0x68;
+    i2c_write_byte(MPU_ADDRESS, MPU_I2C_SLV0, &a_buffer);
+    // reset i2c master mode
+    reset_master_mode();
+    _delay_ms(20);
+    
+    if( write_memory_block(dmp_memory, MPU_DMP_CODE_SIZE, 0, 0, 1, 1) == 1)
+    {
+        if(write_dmp_configuration_set(dmp_config, MPU_DMP_CONFIG_SIZE, 1) == 1)
+        {
+            set_clk_selection(PLL_Z_GYRO); // set clock selection
+            
+            //configure_interrupt(); // set interrupts active low
+            
+            interrupt_enable(DMP|FIFO_OFLOW);// enable DMP
+            
+            set_sample_rate(4); //set sample rate to 200Hz
+            
+            set_fsync_config(0x01); // set external fsync pin to TEMP_OUT_L.. why ?
+            
+            set_dlpf(DLPF_3); // set DLPF to 42Hz for Gyro, 44 for accelerometer
+            
+            set_gyro_range(GYRO_DEG_2000); // set gyro sensitivity to +- 2000 deg/sec
+
+            // set DMP configuration bytes (function unknown)
+            a_buffer = 0x03; 
+            i2c_write_byte(MPU_ADDRESS, MPU_DMP_CFG_1, &a_buffer);
+            a_buffer = 0x00;
+            i2c_write_byte(MPU_ADDRESS, MPU_DMP_CFG_2, &a_buffer);
+            
+            set_otp_bank_flag(0); // clear OTP bank flag (??)
+            
+            // @todo set offset here if needed
+            
+            uint8_t dmp_update[16], j;
+            uint16_t pos = 0;
+            for (j = 0; j < 4 || j < dmp_update[2] + 3; j++, pos++)
+                dmp_update[j] = pgm_read_byte(&dmp_updates[pos]);
+                
+            if( write_memory_block(dmp_update + 3, dmp_update[2], dmp_update[0], dmp_update[1], 1, 0) == 0)
+            {
+                printf("error while writing memory block 1/6");
+                return;
+            }
+
+            //writing final memory update 2/7 (function unknown)
+            for (j = 0; j < 4 || j < dmp_update[2] + 3; j++, pos++)
+                dmp_update[j] = pgm_read_byte(&dmp_updates[pos]);
+                
+            if(write_memory_block(dmp_update + 3, dmp_update[2], dmp_update[0], dmp_update[1], 1, 0) == 0)
+            {
+                printf("error while writing memory block 2/6");
+                return;
+            }
+            
+            reset_fifo(); //reset FIFO
+
+            //reading FIFO count
+            uint16_t fifo_count = get_fifo_count(); //HERE
+            uint8_t fifo_buffer[128];
+            
+            get_fifo_bytes(fifo_buffer, fifo_count); //current FIFO count
+            
+            a_buffer = 2;
+            i2c_write_byte(MPU_ADDRESS, MPU_MOT_THR, &a_buffer); //setting motion detection threshold to 2
+            
+            a_buffer = 156;
+            i2c_write_byte(MPU_ADDRESS, MPU_ZRMOT_THR, &a_buffer); //setting zero-motion detection threshold to 156
+
+            a_buffer = 80;
+            i2c_write_byte(MPU_ADDRESS, MPU_MOT_DUR, &a_buffer); //setting motion detection duration to 80
+
+            a_buffer = 0;
+            i2c_write_byte(MPU_ADDRESS, MPU_ZRMOT_DUR, &a_buffer); //setting zero-motion detection duration to 0
+
+            reset_fifo(); //reset FIFO
+
+            set_fifo_enabled(1); //enabling FIFO
+
+            //enabling DMP
+            set_dmp_enabled(1);
+
+            reset_dmp(); //resetting DMP
+            
+            _delay_ms(50);
+            //waiting for FIFO count > 2
+            while ((fifo_count = get_fifo_count()) < 3) _delay_ms(30);
+            
+            //writing final memory update 3/7 (function unknown)
+            for (j = 0; j < 4 || j < dmp_update[2] + 3; j++, pos++)
+                dmp_update[j] = pgm_read_byte(&dmp_updates[pos]);
+                
+            if(write_memory_block(dmp_update + 3, dmp_update[2], dmp_update[0], dmp_update[1], 1, 0) == 0)
+            {
+                printf("error while writing memory block 3/6");
+                return;
+            }
+
+            //writing final memory update 4/7 (function unknown)
+            for (j = 0; j < 4 || j < dmp_update[2] + 3; j++, pos++)
+                dmp_update[j] = pgm_read_byte(&dmp_updates[pos]);
+                
+            if(write_memory_block(dmp_update + 3, dmp_update[2], dmp_update[0], dmp_update[1], 1, 0) == 0)
+            {
+                printf("error while writing memory block 4/6");
+                return;
+            }
+
+            //writing final memory update 5/7 (function unknown)
+            for (j = 0; j < 4 || j < dmp_update[2] + 3; j++, pos++)
+                dmp_update[j] = pgm_read_byte(&dmp_updates[pos]);
+                
+            if(write_memory_block(dmp_update + 3, dmp_update[2], dmp_update[0], dmp_update[1], 1, 0) == 0)
+            {
+                printf("error while writing memory block 5/6");
+                return;
+            }
+
+            //reading FIFO data
+            i2c_read_bytes(MPU_ADDRESS, MPU_FIFO_DATA, fifo_count, fifo_buffer);
+
+            //reading final memory update 6/7 (function unknown)
+            for (j = 0; j < 4 || j < dmp_update[2] + 3; j++, pos++)
+                dmp_update[j] = pgm_read_byte(&dmp_updates[pos]);
+                
+            read_memory_block(dmp_update + 3, dmp_update[2], dmp_update[0], dmp_update[1]);
+            
+            _delay_ms(50);
+            
+            //waiting for FIFO count >= 2
+            while ((fifo_count = get_fifo_count()) < 3) _delay_ms(30);
+
+            //reading FIFO data
+            get_fifo_bytes(fifo_buffer, fifo_count);
+            
+            get_int_status(&a_buffer);
+            
+            printf("int status : 0x%X\n", a_buffer);
+            
+            //writing final memory update 7/7 (function unknown)
+            for (j = 0; j < 4 || j < dmp_update[2] + 3; j++, pos++)
+                dmp_update[j] = pgm_read_byte(&dmp_updates[pos]);
+         
+            if(write_memory_block(dmp_update + 3, dmp_update[2], dmp_update[0], dmp_update[1], 1, 0) == 0)
+            {
+                printf("error while writing memory block 6/6");
+                return;
+            }
+            
+            set_dmp_enabled(0); //disabling DMP (you turn it on later)
+            reset_fifo(); //resetting FIFO and clearing INT status one last time
+            get_int_status(&a_buffer); // each call clear int flags
+        }
+        else
+        {
+            printf("DMP configuration write error, aborting \n");
+        }
+    }
+    else
+    {
+        printf("DMP memory write error, aborting \n");
+    }
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void get_quaternion_values_from_fifo(int16_t *data, const uint8_t* packet)
+{
+    if (packet == 0) packet = dmp_packet_buffer;
+    data[0] = ((packet[0] << 8) | packet[1]);
+    data[1] = ((packet[4] << 8) | packet[5]);
+    data[2] = ((packet[8] << 8) | packet[9]);
+    data[3] = ((packet[12] << 8) | packet[13]);
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void get_quaternion(Quaternion* quaternion , const uint8_t* packet)
+{
+    int16_t data[4];
+    get_quaternion_values_from_fifo(data, packet);
+    quaternion->w = (float)data[0] / 16384.0f;
+    quaternion->x = (float)data[1] / 16384.0f;
+    quaternion->y = (float)data[2] / 16384.0f;
+    quaternion->z = (float)data[3] / 16384.0f;
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void dmp_get_gravity(VectorFloat* vectorfloat, Quaternion* quaternion)
+{
+    vectorfloat->x = 2 * (quaternion->x*quaternion->z - quaternion->w*quaternion->y);
+    vectorfloat->y = 2 * (quaternion->w*quaternion->x + quaternion->y*quaternion->z);
+    vectorfloat->z = quaternion->w*quaternion->w - quaternion->x*quaternion->x - quaternion->y*quaternion->y + quaternion->z*quaternion->z;
+}
+
+/************************************************************************/
+/* @details                                                             */
+/************************************************************************/
+void dmp_get_ypr(float* data, Quaternion* quaternion, VectorFloat* gravity)
+{
+    // yaw: (about Z axis)
+    data[0] = atan2(2*quaternion->x*quaternion->y - 2*quaternion->w*quaternion->z, 2*quaternion->w*quaternion->w + 2*quaternion->x*quaternion->x - 1);
+    // pitch: (nose up/down, about Y axis)
+    data[1] = atan(gravity->x / sqrt(gravity->y*gravity->y + gravity->z*gravity->z));
+    // roll: (tilt left/right, about X axis)
+    data[2] = atan(gravity->y / sqrt(gravity->x*gravity->x + gravity->z*gravity->z));
 }

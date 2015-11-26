@@ -124,7 +124,5 @@ uint8_t i2c_write_byte(uint8_t device_addr, uint8_t reg_addr, uint8_t* data)
 
 uint8_t read_bits_from_byte(uint8_t offset, uint8_t length, uint8_t data)
 {
-    printf("[read_bits_from_byte] data : 0x%X\n", data);
-    printf("[read_bits_from_byte] return : 0x%X\n", (data >> offset) & ((1 << length) - 1));
     return (data >> offset) & ((1 << length) - 1);
 }

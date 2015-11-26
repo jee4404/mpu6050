@@ -17,6 +17,7 @@
 #include <avr/pgmspace.h>
 #include <avr/interrupt.h>
 #include "accel_registers.h"
+#include "helper_3dmath.h"
 
 /************************************************************************/
 /* @brief clk selection different values                              */
@@ -80,12 +81,23 @@ enum FIFO_ENABLE {
 };
 
 /************************************************************************/
-/* @brief interrupt flag from MPU                                       */
+/* @brief MPU available interruption sources                            */
 /************************************************************************/
-uint8_t interrupt_accel_flag;
+enum INT_EN_SRC {
+    DATA_READY = 1,
+    DMP        = 2,
+    PLL        = 4,
+    MASTER     = 8,
+    FIFO_OFLOW = 16    
+};
 
 /************************************************************************/
-/* @brief clear interrupt flag from MPU                                 */
+/* @brief interrupt flag from MPU                                       */
+/************************************************************************/
+volatile uint8_t interrupt_accel_flag;
+
+/************************************************************************/
+/* @brief clear interrupt flag from register                            */
 /************************************************************************/
 void clear_interrupt_accel_flag();
 
@@ -97,7 +109,7 @@ void configure_accelgyro();
 /************************************************************************/
 /* @brief configure the DMP                                             */
 /************************************************************************/
-void confiugre_dmp();
+void configure_dmp();
 
 /************************************************************************/
 /* @brief test connection with a who am i                               */
@@ -130,6 +142,11 @@ void set_clk_selection(enum CLK_SEL clk_value);
 void set_dlpf(enum DLPF_CFG dlpf_value);
 
 /************************************************************************/
+/* @brief configure fsync pin behavior                                  */
+/************************************************************************/
+void set_fsync_config(uint8_t value);
+
+/************************************************************************/
 /* @brief set accelerometer range                                       */
 /************************************************************************/
 void set_accel_range(enum ACCEL_RANGE range_value);
@@ -153,4 +170,118 @@ void set_fifo_enabled(uint8_t enable);
 /* @brief reset FIFO buffer                                             */
 /************************************************************************/
 void reset_fifo();
+
+/************************************************************************/
+/* @brief perform a full reset of device                                */
+/************************************************************************/
+void reset_device();
+
+/************************************************************************/
+/* @brief enable interrupt for specific sources (see INT_EN_SRC enum)   */
+/************************************************************************/
+void interrupt_enable(enum INT_EN_SRC enable_from);
+
+/************************************************************************/
+/* @brief clear the OTP bank flag (??)                                  */
+/************************************************************************/
+void set_otp_bank_flag(uint8_t enable);
+
+/************************************************************************/
+/* @brief return fifo count                                             */
+/************************************************************************/
+uint16_t get_fifo_count();
+
+/************************************************************************/
+/* @brief read FIFO buffer                                              */
+/************************************************************************/
+void get_fifo_bytes(uint8_t* bytes, uint8_t length);
+
+/************************************************************************/
+/* @brief get accelerometer x,y and z                                   */
+/************************************************************************/
+
+/************************************************************************/
+/* @brief get gyro x, y and z values                                    */
+/************************************************************************/
+
+/************************************************************************/
+/* @brief configure interrupt behavior                                  */
+/************************************************************************/
+void configure_interrupt();
+
+/************************************************************************/
+/* @brief read interrupt status register                                */
+/************************************************************************/
+void get_int_status(uint8_t* data);
+
+/************************************************************************/
+/* @brief enable/disable i2c master mode for the chip                   */
+/************************************************************************/
+void set_master_mode_enabled(uint8_t enable);
+
+/************************************************************************/
+/* @brief reset i2c master mode                                         */
+/************************************************************************/
+void reset_master_mode();
+
+/************************************************************************/
+/* DMP memory functions - taken from J Rowberg I2C devlib               */
+/* and Davide Gironi MPU6050 Lib thanks to them                         */
+/************************************************************************/
+
+/************************************************************************/
+/* @brief enable/disable DMP                                            */
+/************************************************************************/
+void set_dmp_enabled(uint8_t enable);
+
+/************************************************************************/
+/* @brief reset DMP                                                     */
+/************************************************************************/
+void reset_dmp();
+
+/************************************************************************/
+/* @brief set a chip memory bank.                                       */
+/************************************************************************/
+void set_memory_bank(uint8_t bank, uint8_t prefetch_enabled, uint8_t in_user_bank);
+
+/************************************************************************/
+/* @brief set DMP memory start address                                  */
+/************************************************************************/
+void set_memory_start_address(uint8_t address);
+
+/************************************************************************/
+/* @brief read a block of memory from DMP                               */
+/************************************************************************/
+void read_memory_block(uint8_t *data, uint16_t data_size, uint8_t bank, uint8_t address);
+
+/************************************************************************/
+/* @brief write a chunk in memory                                       */
+/************************************************************************/
+uint8_t write_memory_block(const uint8_t *data, uint16_t data_size, uint8_t bank, uint8_t address, uint8_t verify, uint8_t use_prog_mem);
+
+/************************************************************************/
+/* @brief write DMP config set (see source file for data etc..          */
+/************************************************************************/
+uint8_t write_dmp_configuration_set(const uint8_t* data, uint16_t data_size, uint8_t use_prog_mem);
+
+/************************************************************************/
+/* @brief get quaternion values from FIFO                               */
+/************************************************************************/
+void get_quaternion_values_from_fifo(int16_t* data, const uint8_t* packet);
+
+/************************************************************************/
+/* @brief build a quaternion from FIFO values                           */
+/************************************************************************/
+void get_quaternion(Quaternion* quaternion , const uint8_t* packet);
+
+/************************************************************************/
+/* @brief get gravity from quaternion into vector                       */
+/************************************************************************/
+void dmp_get_gravity(VectorFloat* vectorfloat, Quaternion* quaternion);
+
+/************************************************************************/
+/* @brief finally get Yaw/Pitch/Roll angles                             */
+/************************************************************************/
+void dmp_get_ypr(float* data, Quaternion* quaternion, VectorFloat* gravity);
+
 #endif /* ACCEL_H_ */

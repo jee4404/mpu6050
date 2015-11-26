@@ -88,7 +88,7 @@ uint8_t i2c_transmit( uint8_t data )
 uint8_t i2c_receive(uint8_t* data, uint8_t no_ack)
 {
     // we want to Rx
-    if(no_ack ==1)
+    if(no_ack == 1)
         TWCR = (1 << TWINT) | (1 << TWEN);
     else
         TWCR = (1 << TWINT) | (1 << TWEN) | (1 << TWEA);
