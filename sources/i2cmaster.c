@@ -1,6 +1,6 @@
 /*
  * I2C master routines. Inspired by Jeff Rowber I2C devlib
- * and Peter Fleury improved lib.
+ * and Davide Gironi MPU6050 C port.
  */
 
 #include "i2cmaster.h"
@@ -26,9 +26,9 @@ void i2c_init(void)
     
     // set SCL frequency. see atmega 2560 data sheet p248 
     // for how to set TWBR according to desired SCL frequency
-    TWBR = 72; // 72 into TWBR -> ? Khz
-    TWSR &= ~(1 << TWPS0); // pre-scaler to 1
-    TWSR &= ~(1 << TWPS1);
+    TWBR = 72; // 72 into TWBR -> 100Khz
+    TWSR &= ~(1 << TWPS0); // pre-scaler to 4
+    TWSR |= (1 << TWPS1);
     TWCR = (1 << TWEN) | (1 << TWIE) | (1 << TWEA);
     
 }/* i2c_init */

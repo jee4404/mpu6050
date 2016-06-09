@@ -2,13 +2,12 @@
  * i2creadoperations.h
  *
  * Created: 2015-11-05 20:46:53
- * Author: remy mourard
- * Most functions copyright (c) Davide Gironi, 2012
- * Released under GPLv3.
- * Please refer to LICENSE file for licensing information.
+ * Author: Remy Mourard
  */
 #ifndef I2CREADOPERATIONS_H_
 #define I2CREADOPERATIONS_H_
+
+#define NOACK_TRIES 5
 
 #include "i2cmaster.h"
 

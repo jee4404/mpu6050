@@ -48,15 +48,9 @@ int main(void)
 	stdin  = &uartIO;
     
     initialize_accelgyro();
-    //configure_dmp();
-    //set_dmp_enabled(1);
+//     configure_dmp();
+//     set_dmp_enabled(1);
     accel_int_enable();
-    
-    printf("entering FIFO loop...\n");
-    
-    (void)gyro_x;
-    (void)gyro_y;
-    (void)gyro_z;
     
     while (1)
     {
@@ -70,7 +64,7 @@ int main(void)
             clear_interrupt_accel_flag();
             if(int_status & 0x10)
             {
-                reset_fifo();
+                //reset_fifo();
             }
             else if(int_status & 0x01) // FIFO data ready
             {
@@ -85,7 +79,12 @@ int main(void)
                 accel_y = (((int16_t)fifo_buffer[2]) << 8)|fifo_buffer[3];
                 accel_z = (((int16_t)fifo_buffer[4]) << 8)|fifo_buffer[5];
                 
-                printf("a_x a_y a_z %d %d %d\n", accel_x, accel_y, accel_z);
+                gyro_x = (((int16_t)fifo_buffer[6]) << 8)|fifo_buffer[7];
+                gyro_y = (((int16_t)fifo_buffer[8]) << 8)|fifo_buffer[9];
+                gyro_z = (((int16_t)fifo_buffer[10]) << 8)|fifo_buffer[11];
+                
+                printf("a/g %d %d %d %d %d %d\n", accel_x, accel_y, accel_z, gyro_x, gyro_y, gyro_z);
+                _delay_ms(250);
             }
             else if(int_status & 0x02)
             {

@@ -2,10 +2,7 @@
  * i2creadoperations.c
  *
  * Created: 2015-11-05 20:46:53
- * Author: remy mourard
- * Most functions copyright (c) Davide Gironi, 2012
- * Released under GPLv3.
- * Please refer to LICENSE file for licensing information.
+ * Author: Remy Mourard
  */
 #ifndef F_CPU
 #define F_CPU 16000000UL
@@ -19,7 +16,7 @@
  */
 uint8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, uint8_t* data)
 {
-    uint8_t i = 0, twi_status = 0;
+    uint8_t i = 0, twi_status = 0, tries = 1;
     int8_t count = 0;
     if(length > 0)
     {
@@ -36,7 +33,13 @@ uint8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, ui
         
 	    if(go_on == 0)
         {
-            printf("[i2c_read] error while issuing i2c start condition [0x%X]\n", twi_status);
+            //printf("[i2c_read] error while issuing i2c start condition [0x%X]\n", twi_status);
+            i2c_stop();
+            if(tries < NOACK_TRIES)
+            {
+                ++tries;
+                i2c_read_bytes(device_addr, reg_addr, length, data);
+            }
         }
         else
         {
@@ -71,12 +74,24 @@ uint8_t i2c_read_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, ui
                 }
                 else
                 {
-                    printf("[i2c_read] error while issuing i2c repeated start condition [0x%X]\n", twi_status);
+                    //printf("[i2c_read] error while issuing i2c repeated start condition [0x%X] retrying...\n", twi_status);
+                    i2c_stop();
+                    if(tries < NOACK_TRIES)
+                    {
+                        ++tries;
+                        i2c_read_bytes(device_addr, reg_addr, length, data);
+                    }
                 }                
             }
             else
             {
-                printf("[i2c_read] error while issuing i2c transmit condition [0x%X]\n", twi_status);
+                //printf("[i2c_read] error while issuing i2c transmit condition [0x%X]\n", twi_status);
+                i2c_stop(); // no sure if i2c stop is necessary...
+                if(tries < NOACK_TRIES)
+                {
+                    ++tries;
+                    i2c_read_bytes(device_addr, reg_addr, length, data);
+                }
             }            
         }        
     }
@@ -90,7 +105,7 @@ uint8_t i2c_read_byte(uint8_t device_addr, uint8_t reg_addr, uint8_t* data)
 
 uint8_t i2c_write_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, uint8_t* data)
 {
-    uint8_t twi_status, count = 0;
+    uint8_t twi_status, count = 0, tries = 0;
     if(length > 0)
     {
         if((twi_status = i2c_start(device_addr, TW_WRITE)) == TW_MT_SLA_ACK)
@@ -107,11 +122,23 @@ uint8_t i2c_write_bytes(uint8_t device_addr, uint8_t reg_addr, uint8_t length, u
             else
             {
                 printf("[i2c_write] error while issuing i2c_transmit [0x%X]\n", twi_status);
+                i2c_stop();
+                if(tries < NOACK_TRIES)
+                {
+                    ++tries;
+                    i2c_write_bytes(device_addr, reg_addr, length, data);
+                }
             }
         }
         else
         {
             printf("[i2c_write] error while issuing i2c start condition [0x%X]\n", twi_status);
+            i2c_stop();
+            if(tries < NOACK_TRIES)
+            {
+                ++tries;
+                i2c_write_bytes(device_addr, reg_addr, length, data);
+            }
         }
     }        
     return count;

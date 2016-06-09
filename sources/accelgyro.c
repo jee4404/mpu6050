@@ -242,8 +242,8 @@ void configure_accelgyro()
     // sample rate, try 1khz ? seems like accelerometer output rate is 1khz
     // so why shouting a lot of bit...
     // sample rate = gyro output rate / (1+SMPLRT_DIV)
-    set_sample_rate(0x07);
-    set_accel_range(ACCEL_G4); // config accelerometer range to +- 4g
+    set_sample_rate(0x09);
+    set_accel_range(ACCEL_G2); // config accelerometer range to +- 4g
     set_gyro_range(GYRO_DEG_250); // 4.1 config gyro range to +-250deg/sec
     
     interrupt_enable(DATA_READY|FIFO_OFLOW);
